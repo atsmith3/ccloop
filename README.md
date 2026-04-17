@@ -15,12 +15,14 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 
 ### With Docker (Recommended)
 
+**Build the image:**
 ```bash
-docker build -t ccl-dev .
-docker run --rm -it \
-  -u $(id -u):$(id -g) \
-  -v $(pwd):/workspace \
-  ccl-dev
+docker build -t ccloop:latest .
+```
+
+**Enter the build environment:**
+```bash
+docker run --rm -it -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest /bin/bash
 ```
 
 Inside the container:
@@ -31,7 +33,13 @@ cmake -B build -G Ninja && cmake --build build
 valgrind --leak-check=full ./build/ccl_test       # check for memory leaks
 ```
 
-Separate terminal on host for editing, git, etc. Files will have matching ownership.
+The `:z` flag on the volume mount is for SELinux compatibility (Fedora/RHEL). Files will have matching ownership with your host user.
+
+Keep a separate terminal on the host for editing, git, etc.
+
+**Docker image includes:**
+- GCC 15 and Clang 21 (full C++23 support)
+- CMake, Ninja, libcurl, gdb, valgrind
 
 ### Native Build (Ubuntu 24.04+, Debian 13+, Fedora 41+)
 
