@@ -1,0 +1,181 @@
+#include "harness.h"
+#include "../src/json.h"
+
+// ============================================================================
+// Parsing tests
+// ============================================================================
+
+TEST(json_parse_null) {
+    JsonValue v = parse_json("null");
+    CHECK(v.is_null());
+}
+
+TEST(json_parse_bool_true) {
+    JsonValue v = parse_json("true");
+    CHECK(v.is_bool());
+    CHECK_EQ(v.as_bool(), true);
+}
+
+TEST(json_parse_bool_false) {
+    JsonValue v = parse_json("false");
+    CHECK(v.is_bool());
+    CHECK_EQ(v.as_bool(), false);
+}
+
+TEST(json_parse_integer) {
+    JsonValue v = parse_json("42");
+    CHECK(v.is_number());
+    CHECK_EQ(v.as_number(), 42.0);
+}
+
+TEST(json_parse_float) {
+    JsonValue v = parse_json("3.14");
+    CHECK(v.is_number());
+    CHECK_EQ(v.as_number(), 3.14);
+}
+
+TEST(json_parse_negative) {
+    JsonValue v = parse_json("-17");
+    CHECK(v.is_number());
+    CHECK_EQ(v.as_number(), -17.0);
+}
+
+TEST(json_parse_string) {
+    JsonValue v = parse_json("\"hello\"");
+    CHECK(v.is_string());
+    CHECK_EQ(v.as_string(), "hello");
+}
+
+TEST(json_parse_string_with_escapes) {
+    JsonValue v = parse_json("\"hello\\nworld\\t!\"");
+    CHECK(v.is_string());
+    CHECK_EQ(v.as_string(), "hello\nworld\t!");
+}
+
+TEST(json_parse_string_with_unicode_escape) {
+    JsonValue v = parse_json("\"hello\\u0020world\"");
+    CHECK(v.is_string());
+    CHECK_EQ(v.as_string(), "hello world");
+}
+
+TEST(json_parse_empty_array) {
+    JsonValue v = parse_json("[]");
+    CHECK(v.is_array());
+    CHECK_EQ(v.as_array().size(), 0);
+}
+
+TEST(json_parse_nested_array) {
+    JsonValue v = parse_json("[1, [2, 3], 4]");
+    CHECK(v.is_array());
+    const auto& arr = v.as_array();
+    CHECK_EQ(arr.size(), 3);
+    CHECK(arr[0]->is_number());
+    CHECK_EQ(arr[0]->as_number(), 1.0);
+    CHECK(arr[1]->is_array());
+    const auto& inner = arr[1]->as_array();
+    CHECK_EQ(inner.size(), 2);
+    CHECK_EQ(inner[0]->as_number(), 2.0);
+}
+
+TEST(json_parse_empty_object) {
+    JsonValue v = parse_json("{}");
+    CHECK(v.is_object());
+    CHECK_EQ(v.as_object().size(), 0);
+}
+
+TEST(json_parse_nested_object) {
+    JsonValue v = parse_json("{\"a\": 1, \"b\": {\"c\": 2}}");
+    CHECK(v.is_object());
+    const auto& obj = v.as_object();
+    CHECK_EQ(obj.size(), 2);
+    CHECK(obj.at("a")->is_number());
+    CHECK_EQ(obj.at("a")->as_number(), 1.0);
+    CHECK(obj.at("b")->is_object());
+    const auto& inner = obj.at("b")->as_object();
+    CHECK_EQ(inner.at("c")->as_number(), 2.0);
+}
+
+// ============================================================================
+// Roundtrip tests
+// ============================================================================
+
+TEST(json_roundtrip_simple_object) {
+    std::string s = R"({"k":"v","n":42})";
+    JsonValue v = parse_json(s);
+    std::string serialized = to_json(v);
+    // Re-parse to verify both are equivalent
+    JsonValue v2 = parse_json(serialized);
+    CHECK(v2.is_object());
+    const auto& obj = v2.as_object();
+    CHECK_EQ(obj.at("k")->as_string(), "v");
+    CHECK_EQ(obj.at("n")->as_number(), 42.0);
+}
+
+TEST(json_roundtrip_nested) {
+    std::string s = R"([1, {"a": true, "b": null}, "test"])";
+    JsonValue v = parse_json(s);
+    std::string serialized = to_json(v);
+    JsonValue v2 = parse_json(serialized);
+    CHECK(v2.is_array());
+    const auto& arr = v2.as_array();
+    CHECK_EQ(arr.size(), 3);
+    CHECK_EQ(arr[0]->as_number(), 1.0);
+    CHECK(arr[1]->is_object());
+    const auto& obj = arr[1]->as_object();
+    CHECK_EQ(obj.at("a")->as_bool(), true);
+    CHECK(obj.at("b")->is_null());
+    CHECK_EQ(arr[2]->as_string(), "test");
+}
+
+// ============================================================================
+// Access tests
+// ============================================================================
+
+TEST(json_access_get_key_present) {
+    JsonValue v = parse_json(R"({"name": "Alice", "age": 30})");
+    auto name = v.get("name");
+    CHECK(name.has_value());
+    CHECK_EQ(name->as_string(), "Alice");
+}
+
+TEST(json_access_get_key_missing) {
+    JsonValue v = parse_json(R"({"name": "Alice"})");
+    auto missing = v.get("age");
+    CHECK(!missing.has_value());
+}
+
+TEST(json_access_index_present) {
+    JsonValue v = parse_json("[10, 20, 30]");
+    auto elem = v.get(1);
+    CHECK(elem.has_value());
+    CHECK_EQ(elem->as_number(), 20.0);
+}
+
+TEST(json_access_index_out_of_bounds) {
+    JsonValue v = parse_json("[10, 20, 30]");
+    auto elem = v.get(10);
+    CHECK(!elem.has_value());
+}
+
+// ============================================================================
+// Type checking and error tests
+// ============================================================================
+
+TEST(json_wrong_type_throws) {
+    JsonValue v = parse_json("42");
+    CHECK_THROWS(v.as_string());
+}
+
+TEST(json_invalid_input_throws) {
+    CHECK_THROWS(parse_json("{bad"));
+}
+
+// ============================================================================
+// Escape tests
+// ============================================================================
+
+TEST(json_escape_special_chars) {
+    std::string escaped = escape_json("hello\nworld\t\"quoted\"\\backslash");
+    std::string expected = "hello\\nworld\\t\\\"quoted\\\"\\\\backslash";
+    CHECK_EQ(escaped, expected);
+}

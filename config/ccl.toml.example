@@ -1,0 +1,6 @@
+endpoint    = "http://localhost:4000/v1"
+api_key     = ""
+model       = "qwen3-235b"
+timeout_sec = 30
+token_limit = 8000
+streaming   = true
