@@ -20,22 +20,32 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 docker build -t ccloop:latest .
 ```
 
-**Enter the build environment:**
+**Enter the build environment (interactive shell):**
 ```bash
 docker run --rm -it -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest /bin/bash
 ```
 
-Inside the container:
+Then inside the container:
 ```bash
 cmake -B build -G Ninja && cmake --build build
-./build/ccl_test                                   # run tests
-./build/ccl                                        # run the CLI
-valgrind --leak-check=full ./build/ccl_test       # check for memory leaks
+make -C build test                                # run all tests
+./build/ccl                                       # run the CLI
+valgrind --leak-check=full ./build/ccl_test      # check for memory leaks
+```
+
+**Or run build/test commands directly (non-interactive):**
+```bash
+# Build and run all tests
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c "cd /workspace && cmake -B build -G Ninja && cmake --build build && make -C build test"
+
+# Or with Make instead of Ninja
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c "cd /workspace && cmake -B build && make -C build && make -C build test"
+
+# Or with ctest
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c "cd /workspace && cmake -B build && cmake --build build && ctest --test-dir build --output-on-failure"
 ```
 
 The `:z` flag on the volume mount is for SELinux compatibility (Fedora/RHEL). Files will have matching ownership with your host user.
-
-Keep a separate terminal on the host for editing, git, etc.
 
 **Docker image includes:**
 - GCC 15 and Clang 21 (full C++23 support)
@@ -145,20 +155,27 @@ tokens: 1203/8000
 
 Unit tests are built into the project — no external test framework dependency.
 
-**Run tests:**
+**Quick test (Docker):**
 ```bash
-cmake --build build
-./build/ccl_test
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c "cd /workspace && cmake -B build -G Ninja && cmake --build build && make -C build test"
 ```
 
-Or with CTest:
+**Run tests directly (after building):**
 ```bash
+cmake --build build
+./build/ccl_test              # run the test binary directly
+```
+
+**Or with CTest:**
+```bash
+make -C build test            # Make
+cmake --build build --target test  # Ninja
 ctest --test-dir build --output-on-failure
 ```
 
-**Memory leak testing (Docker):**
+**Memory leak testing:**
 ```bash
-valgrind --leak-check=full ./build/ccl_test
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c "cd /workspace && cmake -B build -G Ninja && cmake --build build && valgrind --leak-check=full ./build/ccl_test"
 ```
 
 **Test coverage:**
