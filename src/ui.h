@@ -11,7 +11,7 @@ public:
     void show_message    (std::string_view role, std::string_view content);
     void show_tool_call  (const ToolCall& call, ToolSource source);
     void show_tool_result(const ToolCall& call, const ToolResult& result);
-    void show_mode       (AgentMode mode);
+    void show_mode       (AgentMode mode, size_t tokens_used, size_t token_limit);
     void update_tokens   (size_t used, size_t limit);
     void show_error      (std::string_view msg);
     void append_chunk    (std::string_view chunk);  // for streaming output

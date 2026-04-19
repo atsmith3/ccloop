@@ -14,6 +14,24 @@ void ContextManager::push_system(std::string content) {
     total_tokens_ += msg.estimated_tokens;
 }
 
+void ContextManager::replace_system(std::string content) {
+    Message msg;
+    msg.role = Message::Role::System;
+    msg.content = std::move(content);
+    msg.estimated_tokens = estimate_tokens(msg.content);
+
+    if (!messages_.empty() && messages_[0].role == Message::Role::System) {
+        // Replace existing system message, update token count
+        total_tokens_ -= messages_[0].estimated_tokens;
+        messages_[0] = msg;
+        total_tokens_ += msg.estimated_tokens;
+    } else {
+        // No existing system message, insert at front
+        messages_.insert(messages_.begin(), msg);
+        total_tokens_ += msg.estimated_tokens;
+    }
+}
+
 void ContextManager::push_user(std::string content) {
     Message msg;
     msg.role = Message::Role::User;
@@ -141,11 +159,11 @@ std::string ContextManager::to_json() const {
                 ss << "\"tool\"";
                 break;
         }
-        ss << ",\"content\":\"" << msg.content << "\"";
+        ss << ",\"content\":\"" << escape_json(msg.content) << "\"";
 
         // Tool call ID (for tool messages)
         if (msg.role == Message::Role::Tool && !msg.tool_call_id.empty()) {
-            ss << ",\"tool_call_id\":\"" << msg.tool_call_id << "\"";
+            ss << ",\"tool_call_id\":\"" << escape_json(msg.tool_call_id) << "\"";
         }
 
         // Tool calls (for assistant messages)
@@ -154,9 +172,9 @@ std::string ContextManager::to_json() const {
             for (size_t j = 0; j < msg.tool_calls.size(); ++j) {
                 if (j > 0) ss << ",";
                 const auto& tc = msg.tool_calls[j];
-                ss << "{\"id\":\"" << tc.id << "\""
+                ss << "{\"id\":\"" << escape_json(tc.id) << "\""
                    << ",\"type\":\"function\",\"function\":{"
-                   << "\"name\":\"" << tc.name << "\""
+                   << "\"name\":\"" << escape_json(tc.name) << "\""
                    << ",\"arguments\":" << tc.arguments_json
                    << "}}";
             }

@@ -1,0 +1,5 @@
+/home/andrew/prj/ccloop/build_local/CMakeFiles/ccl.dir
+/home/andrew/prj/ccloop/build_local/CMakeFiles/ccl_test.dir
+/home/andrew/prj/ccloop/build_local/CMakeFiles/test.dir
+/home/andrew/prj/ccloop/build_local/CMakeFiles/edit_cache.dir
+/home/andrew/prj/ccloop/build_local/CMakeFiles/rebuild_cache.dir

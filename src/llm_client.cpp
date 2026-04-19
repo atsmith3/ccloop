@@ -247,7 +247,9 @@ LlmResponse LlmClient::complete(const ContextManager& context,
 
     if (http_result.status != 200) {
         LlmResponse response;
-        response.content = "[ERROR] HTTP " + std::to_string(http_result.status);
+        std::string body_preview = http_result.body.substr(0, 200);
+        response.content = "[ERROR] HTTP " + std::to_string(http_result.status)
+                         + ": " + body_preview;
         return response;
     }
 
@@ -432,6 +434,7 @@ LlmResponse LlmClient::complete_streaming(
 
     if (http_result.status != 200) {
         LlmResponse response;
+        // Body is unavailable for streaming (consumed by SSE callback); show status only
         response.content = "[ERROR] HTTP " + std::to_string(http_result.status);
         return response;
     }

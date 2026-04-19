@@ -8,7 +8,6 @@
 
 // Agent mode
 enum class AgentMode {
-    Explore,
     Plan,
     Act,
 };

@@ -36,20 +36,10 @@ void Ui::show_tool_result(const ToolCall& call, const ToolResult& result) {
     std::cout.flush();
 }
 
-void Ui::show_mode(AgentMode mode) {
-    std::string mode_str;
-    switch (mode) {
-        case AgentMode::Explore:
-            mode_str = "explore";
-            break;
-        case AgentMode::Plan:
-            mode_str = "plan";
-            break;
-        case AgentMode::Act:
-            mode_str = "act";
-            break;
-    }
-    std::cout << "[ccl] Mode: " << mode_str << " | tokens: 0/8000\n";
+void Ui::show_mode(AgentMode mode, size_t tokens_used, size_t token_limit) {
+    std::string mode_str = (mode == AgentMode::Plan) ? "plan" : "act";
+    std::cout << "[ccl] Mode: " << mode_str
+              << " | tokens: " << tokens_used << "/" << token_limit << "\n";
     std::cout.flush();
 }
 

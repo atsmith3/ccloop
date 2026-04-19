@@ -4,28 +4,24 @@
 #include <atomic>
 #include <set>
 
-Agent::Agent(Config config, Ui& ui)
-    : config_(config), context_(config.token_limit), llm_(config),
-      registry_(make_registry(mode_, config)), ui_(ui) {}
+Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
+    : config_(config), mode_(initial_mode), context_(config.token_limit), llm_(config),
+      registry_(make_registry(initial_mode, config)), ui_(ui) {}
 
 void Agent::run() {
     context_.push_system(system_prompt());
-    ui_.show_mode(mode_);
+    ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
     loop();
 }
 
 std::string Agent::system_prompt() const {
     switch (mode_) {
-        case AgentMode::Explore:
-            return "You are an expert coding assistant. You can read and analyze code, answer "
-                   "questions, and explore codebases. You have read-only file access tools. "
-                   "Answer questions thoroughly and help developers understand their code.";
         case AgentMode::Plan:
             return "You are a software architect. Use read-only tools to understand the codebase, "
                    "then produce a numbered implementation plan. Do not write files or make changes. "
                    "Focus on understanding the existing code structure and proposing clear, "
-                   "actionable steps.";
+                   "actionable steps. When finished, tell the user the plan is ready.";
         case AgentMode::Act:
             return "You are an expert software engineer. Execute the plan step by step using "
                    "available tools. Report progress and any issues. Be careful and precise "
@@ -36,7 +32,14 @@ std::string Agent::system_prompt() const {
 
 void Agent::loop() {
     while (!should_exit.load()) {
-        std::string input = ui_.wait_for_input();
+        std::string input;
+
+        if (!pending_execution_.empty()) {
+            input = std::move(pending_execution_);
+            pending_execution_.clear();
+        } else {
+            input = ui_.wait_for_input();
+        }
 
         if (handle_slash_command(input)) {
             continue;
@@ -59,13 +62,22 @@ void Agent::loop() {
                 // Use streaming
                 response = llm_.complete_streaming(context_, registry_.definitions(),
                     [&](std::string_view chunk) { ui_.append_chunk(chunk); });
-                // Add newline after streamed content
                 if (!response.content.empty()) {
                     std::cout << "\n\n";
                 }
             } else {
                 // Use blocking call
                 response = llm_.complete(context_, registry_.definitions());
+            }
+
+            // Check if response is an error
+            bool is_error = response.content.find("[ERROR]") == 0;
+
+            if (is_error) {
+                // Error response: show to user but don't add to context or sync tokens
+                ui_.show_error(response.content);
+                ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                break;  // Exit inner loop, wait for next user input
             }
 
             context_.sync_token_count(response.usage);
@@ -82,7 +94,7 @@ void Agent::loop() {
                 bool first = true;
                 for (const auto& [key, val] : call.args) {
                     if (!first) args_ss << ",";
-                    args_ss << escape_json(key) << ":";
+                    args_ss << "\"" << escape_json(key) << "\":";
                     args_ss << to_json(val);
                     first = false;
                 }
@@ -168,9 +180,7 @@ bool Agent::handle_slash_command(std::string_view input) {
     while (!arg.empty() && arg.back() == ' ') arg.pop_back();
 
     if (command == "mode") {
-        if (arg == "explore") {
-            transition_to(AgentMode::Explore);
-        } else if (arg == "plan") {
+        if (arg == "plan") {
             transition_to(AgentMode::Plan);
         } else if (arg == "act") {
             transition_to(AgentMode::Act);
@@ -185,7 +195,7 @@ bool Agent::handle_slash_command(std::string_view input) {
 
     if (command == "help") {
         std::cout << "Slash commands:\n"
-                  << "  /mode explore|plan|act - switch modes\n"
+                  << "  /mode plan|act - switch modes\n"
                   << "  /quit - exit\n"
                   << "  /clear - clear context\n"
                   << "  /help - show this help\n";
@@ -211,15 +221,16 @@ bool Agent::handle_slash_command(std::string_view input) {
 void Agent::transition_to(AgentMode next) {
     if (next == mode_) return;
 
+    AgentMode prev = mode_;
     mode_ = next;
     rebuild_registry();
-    ui_.show_mode(mode_);
+    context_.replace_system(system_prompt());
+    ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
 
-    // Update system message
-    ContextManager new_ctx(config_.token_limit);
-    new_ctx.push_system(system_prompt());
-    // TODO: preserve other messages if needed
-    context_ = new_ctx;
+    // Auto-execute when switching Plan → Act
+    if (prev == AgentMode::Plan && next == AgentMode::Act) {
+        pending_execution_ = "Now execute the plan step by step using the available tools.";
+    }
 }
 
 void Agent::rebuild_registry() {

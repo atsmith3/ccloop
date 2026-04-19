@@ -24,9 +24,11 @@ static void print_help() {
 }
 
 int main(int argc, char* argv[]) {
-    Config config = Config::defaults();
     std::string config_path;
-    AgentMode initial_mode = AgentMode::Explore;
+    std::string cli_model;
+    std::string cli_endpoint;
+    bool cli_no_stream = false;
+    AgentMode initial_mode = AgentMode::Plan;
 
     // Parse command-line arguments
     for (int i = 1; i < argc; ++i) {
@@ -34,18 +36,17 @@ int main(int argc, char* argv[]) {
         if (arg == "--config" && i + 1 < argc) {
             config_path = argv[++i];
         } else if (arg == "--model" && i + 1 < argc) {
-            config.model = argv[++i];
+            cli_model = argv[++i];
         } else if (arg == "--endpoint" && i + 1 < argc) {
-            config.endpoint = argv[++i];
+            cli_endpoint = argv[++i];
         } else if (arg == "--mode" && i + 1 < argc) {
             std::string mode_str = argv[++i];
-            if (mode_str == "plan") {
-                initial_mode = AgentMode::Plan;
-            } else if (mode_str == "act") {
+            if (mode_str == "act") {
                 initial_mode = AgentMode::Act;
             }
+            // Plan is already the default
         } else if (arg == "--no-stream") {
-            config.streaming = false;
+            cli_no_stream = true;
         } else if (arg == "--help" || arg == "-h") {
             print_help();
             return 0;
@@ -57,11 +58,14 @@ int main(int argc, char* argv[]) {
     Config::apply_env_overrides(loaded_config);
 
     // CLI arguments take highest priority for model and endpoint
-    if (!config.model.empty()) {
-        loaded_config.model = config.model;
+    if (!cli_model.empty()) {
+        loaded_config.model = cli_model;
     }
-    if (!config.endpoint.empty()) {
-        loaded_config.endpoint = config.endpoint;
+    if (!cli_endpoint.empty()) {
+        loaded_config.endpoint = cli_endpoint;
+    }
+    if (cli_no_stream) {
+        loaded_config.streaming = false;
     }
 
     // Register signal handlers
@@ -70,7 +74,7 @@ int main(int argc, char* argv[]) {
 
     // Run agent
     Ui ui;
-    Agent agent(loaded_config, ui);
+    Agent agent(loaded_config, ui, initial_mode);
     agent.run();
 
     return 0;

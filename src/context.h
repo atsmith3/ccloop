@@ -9,6 +9,7 @@ public:
     explicit ContextManager(size_t token_limit);
 
     void push_system(std::string content);
+    void replace_system(std::string content);  // Update system message, keep conversation
     void push_user(std::string content);
     void push_assistant(std::string content,
                         std::vector<ToolCallRecord> tool_calls = {});

@@ -146,7 +146,7 @@ TEST(tool_search_files_no_match) {
 
 TEST(tool_registry_find_existing) {
     Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Explore, cfg);
+    ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
     auto tool = registry.find("read_file");
     CHECK(tool.has_value());
@@ -155,7 +155,7 @@ TEST(tool_registry_find_existing) {
 
 TEST(tool_registry_find_missing) {
     Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Explore, cfg);
+    ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
     auto tool = registry.find("nonexistent_tool");
     CHECK(!tool.has_value());
@@ -163,7 +163,7 @@ TEST(tool_registry_find_missing) {
 
 TEST(tool_registry_definitions_count) {
     Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Explore, cfg);
+    ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
     auto defs = registry.definitions();
     // Should have 4 read-only tools

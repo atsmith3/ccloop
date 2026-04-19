@@ -11,16 +11,17 @@ extern std::atomic<bool> should_exit;
 
 class Agent {
 public:
-    Agent(Config config, Ui& ui);
+    Agent(Config config, Ui& ui, AgentMode initial_mode = AgentMode::Plan);
     void run();
 
 private:
     Config         config_;
-    AgentMode      mode_ = AgentMode::Explore;
+    AgentMode      mode_ = AgentMode::Plan;
     ContextManager context_;
     LlmClient      llm_;
     ToolRegistry   registry_;
     Ui&            ui_;
+    std::string    pending_execution_;
 
     void loop();
     void handle_tool_calls(const std::vector<ToolCall>& calls);
