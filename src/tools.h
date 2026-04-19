@@ -39,3 +39,9 @@ ToolResult tool_read_file   (const ToolArgs& args);
 ToolResult tool_list_dir    (const ToolArgs& args);
 ToolResult tool_search_files(const ToolArgs& args);
 ToolResult tool_file_info   (const ToolArgs& args);
+
+// Write tools (Act mode only)
+ToolResult tool_write_file  (const ToolArgs& args);
+ToolResult tool_create_dir  (const ToolArgs& args);
+ToolResult tool_delete_file (const ToolArgs& args);
+ToolResult tool_run_shell   (const ToolArgs& args);

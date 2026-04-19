@@ -3,6 +3,11 @@
 #include <filesystem>
 #include <regex>
 #include <sstream>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <chrono>
 
 namespace fs = std::filesystem;
 
@@ -192,6 +197,304 @@ ToolResult tool_file_info(const ToolArgs& args) {
 }
 
 // ============================================================================
+// Write tool implementations
+// ============================================================================
+
+// Helper: Generate a unified diff (simple line-based)
+static std::string generate_diff(const std::string& old_content, const std::string& new_content, const std::string& path) {
+    // Split into lines
+    auto split_lines = [](const std::string& s) {
+        std::vector<std::string> lines;
+        std::istringstream iss(s);
+        std::string line;
+        while (std::getline(iss, line)) {
+            lines.push_back(line);
+        }
+        return lines;
+    };
+
+    std::vector<std::string> old_lines = split_lines(old_content);
+    std::vector<std::string> new_lines = split_lines(new_content);
+
+    // If either is > 500 lines, just report size change
+    if (old_lines.size() > 500 || new_lines.size() > 500) {
+        return "content changed: " + std::to_string(old_content.size()) + " bytes -> " +
+               std::to_string(new_content.size()) + " bytes";
+    }
+
+    // Build simple unified diff header
+    std::ostringstream diff;
+    diff << "--- " << path << " (old)\n";
+    diff << "+++ " << path << " (new)\n";
+    diff << "@@ -1," << old_lines.size() << " +1," << new_lines.size() << " @@\n";
+
+    // Simple line-by-line comparison (not a true LCS, but good enough for display)
+    size_t old_idx = 0, new_idx = 0;
+    while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
+        if (old_idx < old_lines.size() && new_idx < new_lines.size() &&
+            old_lines[old_idx] == new_lines[new_idx]) {
+            // Same line
+            diff << " " << old_lines[old_idx] << "\n";
+            ++old_idx;
+            ++new_idx;
+        } else if (old_idx < old_lines.size() &&
+                   (new_idx >= new_lines.size() || old_lines[old_idx] != new_lines[new_idx])) {
+            // Removed line
+            diff << "-" << old_lines[old_idx] << "\n";
+            ++old_idx;
+        } else {
+            // Added line
+            diff << "+" << new_lines[new_idx] << "\n";
+            ++new_idx;
+        }
+    }
+
+    return diff.str();
+}
+
+ToolResult tool_write_file(const ToolArgs& args) {
+    auto path_val = args.find("path");
+    auto content_val = args.find("content");
+
+    if (path_val == args.end() || content_val == args.end()) {
+        return ToolResult::fail("Missing 'path' or 'content' argument");
+    }
+
+    if (!path_val->second.is_string() || !content_val->second.is_string()) {
+        return ToolResult::fail("'path' and 'content' must be strings");
+    }
+
+    std::string path = path_val->second.as_string();
+    std::string new_content = content_val->second.as_string();
+
+    try {
+        // Read existing content (if file exists)
+        std::string old_content;
+        if (fs::exists(path)) {
+            std::ifstream file(path);
+            if (file) {
+                std::ostringstream ss;
+                ss << file.rdbuf();
+                old_content = ss.str();
+            }
+        }
+
+        // Generate diff
+        std::string diff = generate_diff(old_content, new_content, path);
+
+        // Write to temporary file
+        std::string tmp_path = path + ".ccl.tmp";
+        {
+            std::ofstream tmp_file(tmp_path);
+            if (!tmp_file) {
+                return ToolResult::fail("Failed to create temporary file: " + tmp_path);
+            }
+            tmp_file << new_content;
+            if (!tmp_file.good()) {
+                return ToolResult::fail("Failed to write to temporary file: " + tmp_path);
+            }
+        }
+
+        // Atomic rename
+        try {
+            fs::rename(tmp_path, path);
+        } catch (const std::exception& e) {
+            // Clean up temp file on failure
+            try {
+                fs::remove(tmp_path);
+            } catch (...) {}
+            return ToolResult::fail("Failed to rename temporary file: " + std::string(e.what()));
+        }
+
+        return ToolResult::ok(diff);
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+}
+
+ToolResult tool_create_dir(const ToolArgs& args) {
+    auto path_val = args.find("path");
+    if (path_val == args.end()) {
+        return ToolResult::fail("Missing 'path' argument");
+    }
+
+    if (!path_val->second.is_string()) {
+        return ToolResult::fail("'path' must be a string");
+    }
+
+    std::string path = path_val->second.as_string();
+
+    try {
+        if (fs::exists(path)) {
+            if (fs::is_directory(path)) {
+                return ToolResult::ok("already exists: " + path);
+            } else {
+                return ToolResult::fail("path exists but is not a directory: " + path);
+            }
+        }
+
+        fs::create_directories(path);
+        return ToolResult::ok("created: " + path);
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+}
+
+ToolResult tool_delete_file(const ToolArgs& args) {
+    auto path_val = args.find("path");
+    if (path_val == args.end()) {
+        return ToolResult::fail("Missing 'path' argument");
+    }
+
+    if (!path_val->second.is_string()) {
+        return ToolResult::fail("'path' must be a string");
+    }
+
+    std::string path = path_val->second.as_string();
+
+    try {
+        if (!fs::exists(path)) {
+            return ToolResult::fail("not found: " + path);
+        }
+
+        if (!fs::is_regular_file(path)) {
+            return ToolResult::fail("not a regular file: " + path);
+        }
+
+        fs::remove(path);
+        return ToolResult::ok("deleted: " + path);
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+}
+
+ToolResult tool_run_shell(const ToolArgs& args) {
+    auto cmd_val = args.find("command");
+    if (cmd_val == args.end()) {
+        return ToolResult::fail("Missing 'command' argument");
+    }
+
+    if (!cmd_val->second.is_string()) {
+        return ToolResult::fail("'command' must be a string");
+    }
+
+    std::string command = cmd_val->second.as_string();
+
+    // Get optional cwd
+    std::string cwd;
+    auto cwd_val = args.find("cwd");
+    if (cwd_val != args.end() && cwd_val->second.is_string()) {
+        cwd = cwd_val->second.as_string();
+    }
+
+    // Get optional timeout (default 30 seconds)
+    int timeout_sec = 30;
+    auto timeout_val = args.find("timeout_sec");
+    if (timeout_val != args.end() && timeout_val->second.is_number()) {
+        timeout_sec = static_cast<int>(timeout_val->second.as_number());
+    }
+
+    // Create pipe for stdout/stderr
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        return ToolResult::fail("Failed to create pipe");
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return ToolResult::fail("Failed to fork");
+    }
+
+    if (pid == 0) {
+        // Child process
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(pipefd[1], STDERR_FILENO);
+        close(pipefd[1]);
+
+        if (!cwd.empty()) {
+            chdir(cwd.c_str());
+        }
+
+        execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
+        _exit(127);  // exec failed
+    }
+
+    // Parent process
+    close(pipefd[1]);
+
+    // Read output with timeout
+    std::ostringstream output;
+    std::vector<char> buf(4096);
+    auto start_time = std::chrono::steady_clock::now();
+    int status = 0;
+    bool timed_out = false;
+    bool exited = false;
+
+    while (!exited) {
+        auto elapsed = std::chrono::steady_clock::now() - start_time;
+        if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= timeout_sec) {
+            timed_out = true;
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            break;
+        }
+
+        // Non-blocking check for child exit
+        int wait_status = 0;
+        pid_t wait_result = waitpid(pid, &wait_status, WNOHANG);
+        if (wait_result == pid) {
+            status = wait_status;
+            exited = true;
+        }
+
+        // Try to read data (with timeout)
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(pipefd[0], &readfds);
+
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 100000;  // 100ms
+
+        int select_result = select(pipefd[0] + 1, &readfds, nullptr, nullptr, &tv);
+        if (select_result > 0 && FD_ISSET(pipefd[0], &readfds)) {
+            ssize_t bytes = read(pipefd[0], buf.data(), buf.size());
+            if (bytes > 0) {
+                output.write(buf.data(), bytes);
+            } else if (bytes == 0) {
+                // EOF: wait for process to complete and get exit status
+                waitpid(pid, &status, 0);
+                exited = true;
+            }
+        }
+    }
+
+    close(pipefd[0]);
+
+    if (timed_out) {
+        return ToolResult::fail("timeout after " + std::to_string(timeout_sec) + " seconds");
+    }
+
+    if (!exited) {
+        return ToolResult::fail("command did not complete");
+    }
+
+    int exit_code = -1;
+    if (WIFEXITED(status)) {
+        exit_code = WEXITSTATUS(status);
+    }
+
+    if (exit_code != 0) {
+        return ToolResult::fail("exit " + std::to_string(exit_code) + ": " + output.str());
+    }
+
+    return ToolResult::ok(output.str());
+}
+
+// ============================================================================
 // Registry factory
 // ============================================================================
 
@@ -240,9 +543,51 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         registry.register_tool(std::move(tool));
     }
 
-    // Write tools stubbed (Milestone 3)
-    // In Act mode, these would be registered
-    // For now, they're not registered
+    // Write tools (Act mode only)
+    if (mode == AgentMode::Act) {
+        {
+            Tool tool;
+            tool.def.name = "write_file";
+            tool.def.description = "Write content to a file (atomic via temporary file)";
+            tool.def.params.push_back({"path", "string", "Path to file", true});
+            tool.def.params.push_back({"content", "string", "Content to write", true});
+            tool.fn = tool_write_file;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+
+        {
+            Tool tool;
+            tool.def.name = "create_dir";
+            tool.def.description = "Create a directory (creates parent directories as needed)";
+            tool.def.params.push_back({"path", "string", "Path to directory", true});
+            tool.fn = tool_create_dir;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+
+        {
+            Tool tool;
+            tool.def.name = "delete_file";
+            tool.def.description = "Delete a file (requires approval)";
+            tool.def.params.push_back({"path", "string", "Path to file", true});
+            tool.fn = tool_delete_file;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+
+        {
+            Tool tool;
+            tool.def.name = "run_shell";
+            tool.def.description = "Execute a shell command (requires approval)";
+            tool.def.params.push_back({"command", "string", "Shell command to execute", true});
+            tool.def.params.push_back({"cwd", "string", "Working directory (optional)", false});
+            tool.def.params.push_back({"timeout_sec", "integer", "Timeout in seconds (optional, default 30)", false});
+            tool.fn = tool_run_shell;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+    }
 
     return registry;
 }

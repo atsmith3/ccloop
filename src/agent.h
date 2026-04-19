@@ -24,6 +24,7 @@ private:
 
     void loop();
     void handle_tool_calls(const std::vector<ToolCall>& calls);
+    bool requires_approval(const std::string& tool_name) const;
     bool handle_slash_command(std::string_view input);
     void transition_to(AgentMode next);
     void rebuild_registry();

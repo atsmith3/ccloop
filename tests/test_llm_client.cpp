@@ -196,3 +196,103 @@ TEST(llm_non_retryable_error_400) {
 TEST(llm_non_retryable_error_401) {
     CHECK(!LlmClient::is_retryable_status(401));
 }
+
+// ============================================================================
+// Streaming/SSE tests
+// ============================================================================
+
+TEST(llm_sse_extract_data_returns_json) {
+    std::string line = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}";
+    auto result = LlmClient::extract_sse_data(line);
+    CHECK(result.has_value());
+    CHECK_EQ(result.value(), std::string("{\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"));
+}
+
+TEST(llm_sse_extract_done_returns_nullopt) {
+    std::string line = "data: [DONE]";
+    auto result = LlmClient::extract_sse_data(line);
+    CHECK(!result.has_value());
+}
+
+TEST(llm_sse_extract_non_data_line_returns_nullopt) {
+    std::string line = ": comment line";
+    auto result = LlmClient::extract_sse_data(line);
+    CHECK(!result.has_value());
+
+    std::string empty = "";
+    auto result2 = LlmClient::extract_sse_data(empty);
+    CHECK(!result2.has_value());
+}
+
+TEST(llm_sse_accumulate_content_chunk) {
+    LlmResponse resp;
+    std::string chunks_received;
+    std::string data = R"({"choices":[{"delta":{"content":"hello"}}]})";
+    LlmClient::accumulate_sse_chunk(resp, data, [&](std::string_view c){ chunks_received += c; });
+    CHECK_EQ(resp.content, std::string("hello"));
+    CHECK_EQ(chunks_received, std::string("hello"));
+}
+
+TEST(llm_sse_accumulate_tool_call_start) {
+    LlmResponse resp;
+    std::string data = R"({
+        "choices":[{
+            "delta":{
+                "tool_calls":[{
+                    "index":0,
+                    "id":"call_1",
+                    "function":{"name":"read_file"}
+                }]
+            }
+        }]
+    })";
+    LlmClient::accumulate_sse_chunk(resp, data, [](std::string_view){});
+    CHECK_EQ(resp.partial_tool_calls.size(), size_t(1));
+    CHECK_EQ(resp.partial_tool_calls[0].id, std::string("call_1"));
+    CHECK_EQ(resp.partial_tool_calls[0].name, std::string("read_file"));
+}
+
+TEST(llm_sse_accumulate_tool_call_args_fragment) {
+    LlmResponse resp;
+    std::string data1 = R"({
+        "choices":[{
+            "delta":{
+                "tool_calls":[{
+                    "index":0,
+                    "function":{"arguments":"{\"pat"}
+                }]
+            }
+        }]
+    })";
+    LlmClient::accumulate_sse_chunk(resp, data1, [](std::string_view){});
+
+    std::string data2 = R"({
+        "choices":[{
+            "delta":{
+                "tool_calls":[{
+                    "index":0,
+                    "function":{"arguments":"h\":\"/file\"}"}
+                }]
+            }
+        }]
+    })";
+    LlmClient::accumulate_sse_chunk(resp, data2, [](std::string_view){});
+
+    CHECK_EQ(resp.partial_tool_calls[0].accumulated_args, std::string("{\"path\":\"/file\"}"));
+}
+
+TEST(llm_sse_finalize_tool_calls_parses_args) {
+    LlmResponse resp;
+    LlmResponse::PartialToolCall ptc;
+    ptc.id = "call_1";
+    ptc.name = "read_file";
+    ptc.accumulated_args = "{\"path\":\"/etc/passwd\"}";
+    resp.partial_tool_calls.push_back(ptc);
+
+    LlmClient::finalize_streaming_tool_calls(resp);
+
+    CHECK_EQ(resp.tool_calls.size(), size_t(1));
+    CHECK_EQ(resp.tool_calls[0].name, std::string("read_file"));
+    CHECK(resp.tool_calls[0].args.count("path") > 0);
+    CHECK_EQ(resp.partial_tool_calls.size(), size_t(0));
+}

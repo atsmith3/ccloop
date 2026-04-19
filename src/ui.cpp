@@ -1,7 +1,5 @@
 #include "ui.h"
 #include <iostream>
-#include <iomanip>
-#include <sstream>
 
 void Ui::show_message(std::string_view role, std::string_view content) {
     std::cout << "[" << role << "] " << content << "\n\n";
@@ -76,6 +74,11 @@ Approval Ui::request_approval(const ToolCall& call) {
         }
     }
     return Approval::Reject;
+}
+
+void Ui::append_chunk(std::string_view chunk) {
+    std::cout << chunk;
+    std::cout.flush();
 }
 
 std::string Ui::wait_for_input() {

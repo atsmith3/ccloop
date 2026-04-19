@@ -2,6 +2,7 @@
 #include <iostream>
 #include <sstream>
 #include <atomic>
+#include <set>
 
 Agent::Agent(Config config, Ui& ui)
     : config_(config), context_(config.token_limit), llm_(config),
@@ -53,7 +54,20 @@ void Agent::loop() {
                 context_.compact();
             }
 
-            LlmResponse response = llm_.complete(context_, registry_.definitions());
+            LlmResponse response;
+            if (config_.streaming) {
+                // Use streaming
+                response = llm_.complete_streaming(context_, registry_.definitions(),
+                    [&](std::string_view chunk) { ui_.append_chunk(chunk); });
+                // Add newline after streamed content
+                if (!response.content.empty()) {
+                    std::cout << "\n\n";
+                }
+            } else {
+                // Use blocking call
+                response = llm_.complete(context_, registry_.definitions());
+            }
+
             context_.sync_token_count(response.usage);
 
             // Convert tool calls to records for storage
@@ -87,16 +101,35 @@ void Agent::loop() {
             }
 
             // No tool calls and we have text response
-            ui_.show_message("agent", response.content);
+            if (!config_.streaming) {
+                // For non-streaming, show the message (streaming already printed it)
+                ui_.show_message("agent", response.content);
+            }
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
         }
     }
 }
 
+bool Agent::requires_approval(const std::string& tool_name) const {
+    static const std::set<std::string> always_gated{"run_shell", "delete_file"};
+    return always_gated.count(tool_name) > 0;
+}
+
 void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
     for (const auto& call : calls) {
         ui_.show_tool_call(call, ToolSource::Local);
+
+        // Check approval gate
+        if (requires_approval(call.name)) {
+            Approval approval = ui_.request_approval(call);
+            if (approval != Approval::Accept) {
+                ToolResult rejected = ToolResult::fail("rejected by user");
+                ui_.show_tool_result(call, rejected);
+                context_.push_tool_result(call.id, rejected);
+                continue;
+            }
+        }
 
         // Find and execute tool
         auto tool_opt = registry_.find(call.name);
@@ -109,7 +142,7 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
 
         const Tool* tool = tool_opt.value();
 
-        // Execute tool (no approval needed for read-only tools in Milestone 2)
+        // Execute tool
         ToolResult result = tool->fn(call.args);
         ui_.show_tool_result(call, result);
         context_.push_tool_result(call.id, result);
