@@ -25,8 +25,17 @@ enable_testing()
 add_executable(ccl_test
     tests/main.cpp
     tests/test_json.cpp
+    tests/test_config.cpp
+    tests/test_context.cpp
+    tests/test_tools.cpp
+    tests/test_llm_client.cpp
     src/json.cpp
+    src/config.cpp
+    src/context.cpp
+    src/tools.cpp
+    src/llm_client.cpp
 )
 target_include_directories(ccl_test PRIVATE src tests)
+target_link_libraries(ccl_test PRIVATE CURL::libcurl)
 target_compile_options(ccl_test PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 add_test(NAME ccl_tests COMMAND ccl_test)
