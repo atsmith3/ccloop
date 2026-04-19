@@ -20,7 +20,7 @@ struct Config {
     int         max_retries = 3;
     size_t      max_tokens  = 4096;
     float       temperature = 0.7f;
-    bool        streaming   = true;
+    bool        streaming   = false;
 
     // Context settings
     size_t      token_limit = 8000;

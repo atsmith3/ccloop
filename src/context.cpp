@@ -63,7 +63,9 @@ void ContextManager::push_tool_result(std::string call_id, const ToolResult& res
 }
 
 void ContextManager::sync_token_count(const LlmResponse::Usage& usage) {
-    total_tokens_ = usage.total_tokens;
+    if (usage.total_tokens > 0) {
+        total_tokens_ = usage.total_tokens;
+    }
 }
 
 bool ContextManager::needs_compaction() const {
