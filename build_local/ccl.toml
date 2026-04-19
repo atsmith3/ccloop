@@ -1,3 +1,0 @@
-model="qwen3.5-9b"
-timeout_sec=300
-token_limit=120000
