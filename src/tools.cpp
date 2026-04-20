@@ -59,6 +59,14 @@ std::optional<const Tool*> ToolRegistry::find(const std::string& name) const {
 // Argument helpers
 // ============================================================================
 
+// Expand a leading ~ to $HOME (std::filesystem does not do this automatically).
+static std::string expand_tilde(const std::string& path) {
+    if (path.empty() || path[0] != '~') return path;
+    const char* home = std::getenv("HOME");
+    if (!home) return path;
+    return std::string(home) + path.substr(1);
+}
+
 // Extract a required string argument; sets err and returns nullopt on failure.
 static std::optional<std::string> arg_str(const ToolArgs& args, const std::string& key, std::string& err) {
     auto it = args.find(key);
@@ -67,13 +75,20 @@ static std::optional<std::string> arg_str(const ToolArgs& args, const std::strin
     return it->second.as_string();
 }
 
+// Extract a required path argument, expanding ~ automatically.
+static std::optional<std::string> arg_path(const ToolArgs& args, const std::string& key, std::string& err) {
+    auto p = arg_str(args, key, err);
+    if (!p) return {};
+    return expand_tilde(*p);
+}
+
 // ============================================================================
 // Tool implementations
 // ============================================================================
 
 ToolResult tool_read_file(const ToolArgs& args) {
     std::string err;
-    auto path = arg_str(args, "path", err);
+    auto path = arg_path(args, "path", err);
     if (!path) return ToolResult::fail(err);
 
     std::ifstream file(*path);
@@ -86,7 +101,7 @@ ToolResult tool_read_file(const ToolArgs& args) {
 
 ToolResult tool_list_dir(const ToolArgs& args) {
     std::string err;
-    auto path = arg_str(args, "path", err);
+    auto path = arg_path(args, "path", err);
     if (!path) return ToolResult::fail(err);
 
     try {
@@ -107,8 +122,8 @@ ToolResult tool_list_dir(const ToolArgs& args) {
 
 ToolResult tool_search_files(const ToolArgs& args) {
     std::string err;
-    auto path    = arg_str(args, "path",    err); if (!path)    return ToolResult::fail(err);
-    auto pattern = arg_str(args, "pattern", err); if (!pattern) return ToolResult::fail(err);
+    auto path    = arg_path(args, "path",    err); if (!path)    return ToolResult::fail(err);
+    auto pattern = arg_str (args, "pattern", err); if (!pattern) return ToolResult::fail(err);
 
     // Optional glob filter (e.g., "*.cpp", "*.h")
     std::string file_glob;
@@ -163,7 +178,7 @@ ToolResult tool_search_files(const ToolArgs& args) {
 
 ToolResult tool_file_info(const ToolArgs& args) {
     std::string err;
-    auto path = arg_str(args, "path", err);
+    auto path = arg_path(args, "path", err);
     if (!path) return ToolResult::fail(err);
 
     try {
@@ -253,8 +268,8 @@ static std::string generate_diff(const std::string& old_content, const std::stri
 
 ToolResult tool_write_file(const ToolArgs& args) {
     std::string err;
-    auto path        = arg_str(args, "path",    err); if (!path)        return ToolResult::fail(err);
-    auto new_content = arg_str(args, "content", err); if (!new_content) return ToolResult::fail(err);
+    auto path        = arg_path(args, "path",    err); if (!path)        return ToolResult::fail(err);
+    auto new_content = arg_str (args, "content", err); if (!new_content) return ToolResult::fail(err);
 
     try {
         std::string old_content;
@@ -274,9 +289,9 @@ ToolResult tool_write_file(const ToolArgs& args) {
 
 ToolResult tool_edit_file(const ToolArgs& args) {
     std::string err;
-    auto path    = arg_str(args, "path",    err); if (!path)    return ToolResult::fail(err);
-    auto old_str = arg_str(args, "old_str", err); if (!old_str) return ToolResult::fail(err);
-    auto new_str = arg_str(args, "new_str", err); if (!new_str) return ToolResult::fail(err);
+    auto path    = arg_path(args, "path",    err); if (!path)    return ToolResult::fail(err);
+    auto old_str = arg_str (args, "old_str", err); if (!old_str) return ToolResult::fail(err);
+    auto new_str = arg_str (args, "new_str", err); if (!new_str) return ToolResult::fail(err);
 
     try {
         if (!fs::exists(*path)) return ToolResult::fail("File not found: " + *path);
@@ -303,7 +318,7 @@ ToolResult tool_edit_file(const ToolArgs& args) {
 
 ToolResult tool_create_dir(const ToolArgs& args) {
     std::string err;
-    auto path = arg_str(args, "path", err);
+    auto path = arg_path(args, "path", err);
     if (!path) return ToolResult::fail(err);
 
     try {
@@ -320,7 +335,7 @@ ToolResult tool_create_dir(const ToolArgs& args) {
 
 ToolResult tool_delete_file(const ToolArgs& args) {
     std::string err;
-    auto path = arg_str(args, "path", err);
+    auto path = arg_path(args, "path", err);
     if (!path) return ToolResult::fail(err);
 
     try {

@@ -503,3 +503,43 @@ TEST(tool_search_files_skips_hidden_dirs) {
     CHECK(result.content.find("visible.txt") != std::string::npos);
     CHECK(result.content.find(".git") == std::string::npos);
 }
+
+// ============================================================================
+// Tilde expansion tests
+// ============================================================================
+
+TEST(tool_write_file_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;  // skip if HOME not set
+
+    std::string real_path = std::string(home) + "/ccl_tilde_test.txt";
+    // Clean up any leftover from a previous run
+    fs::remove(real_path);
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~/ccl_tilde_test.txt");
+    args["content"].data.emplace<std::string>("tilde test");
+
+    ToolResult result = tool_write_file(args);
+    CHECK(result.success);
+    CHECK(fs::exists(real_path));
+
+    fs::remove(real_path);  // clean up
+}
+
+TEST(tool_read_file_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    std::string real_path = std::string(home) + "/ccl_tilde_test.txt";
+    { std::ofstream f(real_path); f << "hello tilde"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~/ccl_tilde_test.txt");
+
+    ToolResult result = tool_read_file(args);
+    CHECK(result.success);
+    CHECK_EQ(result.content, std::string("hello tilde"));
+
+    fs::remove(real_path);  // clean up
+}

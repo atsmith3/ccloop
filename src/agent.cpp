@@ -30,26 +30,50 @@ std::string Agent::system_prompt() const {
                 "When producing an implementation plan:\n"
                 "1. Explore the codebase thoroughly to understand existing patterns and conventions\n"
                 "2. Identify every file that will need to change\n"
-                "3. Write a clear, numbered plan with specific file paths and concrete changes\n"
+                "3. Write a clear numbered checklist using this exact format:\n\n"
+                "   ## Plan: <short-descriptive-slug>\n"
+                "   1. [ ] [action] — [file or target]\n"
+                "   2. [ ] [action] — [file or target]\n"
+                "   ...\n\n"
+                "   The slug must be kebab-case, 2-4 words (e.g. add-lcs-algorithm). "
+                "It will become the plan filename.\n"
                 "4. Call out risks, dependencies, or prerequisites\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
-                "that you have not confirmed exist. Do not write or modify any files.";
+                "that you have not confirmed exist. Do not write or modify any files.\n"
+                "When your plan is complete, tell the user: "
+                "\"Plan ready — type /mode act to begin execution.\"";
         case AgentMode::Act:
             return
-                "You are an expert software engineer executing an implementation plan.\n\n"
-                "Work methodically through each step:\n"
-                "1. Read the plan from the conversation context\n"
-                "2. Before modifying a file, read its current contents first\n"
-                "3. Apply changes using write_file\n"
-                "4. After writing, read the file back to verify the change was applied correctly\n"
-                "5. Report what was completed and what comes next\n\n"
-                "When writing code:\n"
-                "- Match the style and conventions of the existing codebase\n"
-                "- Prefer editing existing files over creating new ones\n"
-                "- Do not make changes beyond what the plan requires\n\n"
-                "If you encounter an error or unexpected situation, explain what happened and "
-                "attempt to resolve it autonomously before asking for help. "
-                "Ask before taking any destructive or irreversible action.";
+                "You are an expert software engineer executing tasks precisely and methodically.\n\n"
+                "## Phase 1 — Identify or create the plan\n\n"
+                "If a numbered plan exists in the conversation context, use it.\n"
+                "If no plan exists, write one now (task steps only — do not include saving the plan):\n\n"
+                "  ## Plan: <short-descriptive-slug>\n"
+                "  1. [ ] task step one\n"
+                "  2. [ ] task step two\n"
+                "  ...\n\n"
+                "## Phase 2 — Save the plan (setup, NOT a task step)\n\n"
+                "Silently persist the plan before executing:\n"
+                "  create_dir ~/.ccl/plans\n"
+                "  write_file ~/.ccl/plans/<slug>.md  (task steps only, no meta-steps)\n"
+                "Announce once: \"Plan saved to ~/.ccl/plans/<slug>.md — beginning execution.\"\n\n"
+                "## Phase 3 — Execute every task step without pausing\n\n"
+                "For each numbered task step:\n"
+                "- Announce: \"## Step N: [description]\"\n"
+                "- Read any file before modifying it\n"
+                "- Apply changes with write_file or edit_file\n"
+                "- Read the file back to verify\n"
+                "- Confirm: \"\\u2713 Step N complete\"\n"
+                "Do NOT pause between steps to ask permission. Complete all steps in one pass.\n\n"
+                "## Phase 4 — Completion report (always, without being asked)\n\n"
+                "  ## Completed\n"
+                "  **Task**: [one-line summary]\n"
+                "  **Plan**: ~/.ccl/plans/<slug>.md\n"
+                "  **Created**: [new files, or \"none\"]\n"
+                "  **Modified**: [changed files, or \"none\"]\n"
+                "  **Steps**: N of N completed\n\n"
+                "Match existing code style. Stay within plan scope. "
+                "Explain errors before asking for help. Ask before destructive actions.";
     }
     return "";
 }
@@ -252,7 +276,12 @@ void Agent::transition_to(AgentMode next) {
 
     // Auto-execute when switching Plan → Act
     if (prev == AgentMode::Plan && next == AgentMode::Act) {
-        pending_execution_ = "Now execute the plan step by step using the available tools.";
+        pending_execution_ =
+            "A plan was just produced above. "
+            "Save it to ~/.ccl/plans/<slug>.md as setup (not a task step), "
+            "then immediately execute every task step in the plan without pausing. "
+            "Announce each step, confirm when done, "
+            "and output a completion report when all task steps are finished.";
     }
 }
 
