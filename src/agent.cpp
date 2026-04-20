@@ -18,14 +18,38 @@ void Agent::run() {
 std::string Agent::system_prompt() const {
     switch (mode_) {
         case AgentMode::Plan:
-            return "You are a software architect. Use read-only tools to understand the codebase, "
-                   "then produce a numbered implementation plan. Do not write files or make changes. "
-                   "Focus on understanding the existing code structure and proposing clear, "
-                   "actionable steps. When finished, tell the user the plan is ready.";
+            return
+                "You are an expert software architect helping a developer understand and plan "
+                "changes to their codebase.\n\n"
+                "Before answering any question, always use tools to gather information:\n"
+                "- Use list_dir to explore directory structure\n"
+                "- Use read_file to read relevant source files\n"
+                "- Use search_files to find patterns, definitions, or usages across the codebase\n\n"
+                "Never guess at file contents or project structure — always read first. "
+                "If you are unsure which files are relevant, keep exploring until you are confident.\n\n"
+                "When producing an implementation plan:\n"
+                "1. Explore the codebase thoroughly to understand existing patterns and conventions\n"
+                "2. Identify every file that will need to change\n"
+                "3. Write a clear, numbered plan with specific file paths and concrete changes\n"
+                "4. Call out risks, dependencies, or prerequisites\n\n"
+                "Keep plans grounded in what you actually read — do not invent structure or APIs "
+                "that you have not confirmed exist. Do not write or modify any files.";
         case AgentMode::Act:
-            return "You are an expert software engineer. Execute the plan step by step using "
-                   "available tools. Report progress and any issues. Be careful and precise "
-                   "with your operations.";
+            return
+                "You are an expert software engineer executing an implementation plan.\n\n"
+                "Work methodically through each step:\n"
+                "1. Read the plan from the conversation context\n"
+                "2. Before modifying a file, read its current contents first\n"
+                "3. Apply changes using write_file\n"
+                "4. After writing, read the file back to verify the change was applied correctly\n"
+                "5. Report what was completed and what comes next\n\n"
+                "When writing code:\n"
+                "- Match the style and conventions of the existing codebase\n"
+                "- Prefer editing existing files over creating new ones\n"
+                "- Do not make changes beyond what the plan requires\n\n"
+                "If you encounter an error or unexpected situation, explain what happened and "
+                "attempt to resolve it autonomously before asking for help. "
+                "Ask before taking any destructive or irreversible action.";
     }
     return "";
 }
@@ -33,15 +57,17 @@ std::string Agent::system_prompt() const {
 void Agent::loop() {
     while (!should_exit.load()) {
         std::string input;
+        bool is_synthetic = false;
 
         if (!pending_execution_.empty()) {
             input = std::move(pending_execution_);
             pending_execution_.clear();
+            is_synthetic = true;  // fix #11: skip slash command handling for synthetic input
         } else {
             input = ui_.wait_for_input();
         }
 
-        if (handle_slash_command(input)) {
+        if (!is_synthetic && handle_slash_command(input)) {
             continue;
         }
 
@@ -70,12 +96,9 @@ void Agent::loop() {
                 response = llm_.complete(context_, registry_.definitions());
             }
 
-            // Check if response is an error
-            bool is_error = response.content.find("[ERROR]") == 0;
-
-            if (is_error) {
+            if (response.is_error) {
                 // Error response: show to user but don't add to context or sync tokens
-                ui_.show_error(response.content);
+                ui_.show_error("[ERROR] " + response.content);
                 ui_.update_tokens(context_.total_tokens(), config_.token_limit);
                 break;  // Exit inner loop, wait for next user input
             }

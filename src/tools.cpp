@@ -1,6 +1,7 @@
 #include "tools.h"
 #include <fstream>
 #include <filesystem>
+#include <fnmatch.h>
 #include <regex>
 #include <sstream>
 #include <unistd.h>
@@ -55,25 +56,28 @@ std::optional<const Tool*> ToolRegistry::find(const std::string& name) const {
 }
 
 // ============================================================================
+// Argument helpers
+// ============================================================================
+
+// Extract a required string argument; sets err and returns nullopt on failure.
+static std::optional<std::string> arg_str(const ToolArgs& args, const std::string& key, std::string& err) {
+    auto it = args.find(key);
+    if (it == args.end()) { err = "Missing '" + key + "' argument"; return {}; }
+    if (!it->second.is_string()) { err = "'" + key + "' must be a string"; return {}; }
+    return it->second.as_string();
+}
+
+// ============================================================================
 // Tool implementations
 // ============================================================================
 
 ToolResult tool_read_file(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    if (path_val == args.end()) {
-        return ToolResult::fail("Missing 'path' argument");
-    }
+    std::string err;
+    auto path = arg_str(args, "path", err);
+    if (!path) return ToolResult::fail(err);
 
-    if (!path_val->second.is_string()) {
-        return ToolResult::fail("'path' must be a string");
-    }
-
-    std::string path = path_val->second.as_string();
-
-    std::ifstream file(path);
-    if (!file) {
-        return ToolResult::fail("File not found: " + path);
-    }
+    std::ifstream file(*path);
+    if (!file) return ToolResult::fail("File not found: " + *path);
 
     std::ostringstream ss;
     ss << file.rdbuf();
@@ -81,30 +85,20 @@ ToolResult tool_read_file(const ToolArgs& args) {
 }
 
 ToolResult tool_list_dir(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    if (path_val == args.end()) {
-        return ToolResult::fail("Missing 'path' argument");
-    }
-
-    if (!path_val->second.is_string()) {
-        return ToolResult::fail("'path' must be a string");
-    }
-
-    std::string path = path_val->second.as_string();
+    std::string err;
+    auto path = arg_str(args, "path", err);
+    if (!path) return ToolResult::fail(err);
 
     try {
-        if (!fs::exists(path)) {
-            return ToolResult::fail("Directory not found: " + path);
-        }
+        if (!fs::exists(*path)) return ToolResult::fail("Directory not found: " + *path);
 
         std::ostringstream ss;
         bool first = true;
-        for (const auto& entry : fs::directory_iterator(path)) {
+        for (const auto& entry : fs::directory_iterator(*path)) {
             if (!first) ss << "\n";
             ss << entry.path().filename().string();
             first = false;
         }
-
         return ToolResult::ok(ss.str());
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
@@ -112,33 +106,41 @@ ToolResult tool_list_dir(const ToolArgs& args) {
 }
 
 ToolResult tool_search_files(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    auto pattern_val = args.find("pattern");
+    std::string err;
+    auto path    = arg_str(args, "path",    err); if (!path)    return ToolResult::fail(err);
+    auto pattern = arg_str(args, "pattern", err); if (!pattern) return ToolResult::fail(err);
 
-    if (path_val == args.end() || pattern_val == args.end()) {
-        return ToolResult::fail("Missing 'path' or 'pattern' argument");
+    // Optional glob filter (e.g., "*.cpp", "*.h")
+    std::string file_glob;
+    auto glob_val = args.find("file_glob");
+    if (glob_val != args.end() && glob_val->second.is_string()) {
+        file_glob = glob_val->second.as_string();
     }
-
-    if (!path_val->second.is_string() || !pattern_val->second.is_string()) {
-        return ToolResult::fail("'path' and 'pattern' must be strings");
-    }
-
-    std::string path = path_val->second.as_string();
-    std::string pattern = pattern_val->second.as_string();
 
     try {
-        if (!fs::exists(path)) {
-            return ToolResult::fail("Path not found: " + path);
-        }
+        if (!fs::exists(*path)) return ToolResult::fail("Path not found: " + *path);
 
-        std::regex re(pattern);
+        std::regex re(*pattern);
         std::ostringstream ss;
         bool found_any = false;
 
-        for (const auto& entry : fs::recursive_directory_iterator(path)) {
-            if (!fs::is_regular_file(entry)) continue;
+        // Use explicit iterator so we can skip hidden directories (.git, etc.)
+        for (auto it = fs::recursive_directory_iterator(*path);
+             it != fs::recursive_directory_iterator(); ++it) {
+            // Skip hidden directories (including .git)
+            if (it->is_directory() && it->path().filename().string()[0] == '.') {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if (!it->is_regular_file()) continue;
 
-            std::ifstream file(entry.path());
+            // Apply optional glob filter
+            if (!file_glob.empty()) {
+                std::string fname = it->path().filename().string();
+                if (fnmatch(file_glob.c_str(), fname.c_str(), 0) != 0) continue;
+            }
+
+            std::ifstream file(it->path());
             if (!file) continue;
 
             std::string line;
@@ -147,7 +149,7 @@ ToolResult tool_search_files(const ToolArgs& args) {
                 ++line_no;
                 if (std::regex_search(line, re)) {
                     if (found_any) ss << "\n";
-                    ss << entry.path().string() << ":" << line_no << ": " << line;
+                    ss << it->path().string() << ":" << line_no << ": " << line;
                     found_any = true;
                 }
             }
@@ -160,35 +162,27 @@ ToolResult tool_search_files(const ToolArgs& args) {
 }
 
 ToolResult tool_file_info(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    if (path_val == args.end()) {
-        return ToolResult::fail("Missing 'path' argument");
-    }
-
-    if (!path_val->second.is_string()) {
-        return ToolResult::fail("'path' must be a string");
-    }
-
-    std::string path = path_val->second.as_string();
+    std::string err;
+    auto path = arg_str(args, "path", err);
+    if (!path) return ToolResult::fail(err);
 
     try {
-        if (!fs::exists(path)) {
-            return ToolResult::ok("exists: false");
-        }
+        if (!fs::exists(*path)) return ToolResult::ok("exists: false");
 
         std::ostringstream ss;
         ss << "exists: true\n";
-        ss << "is_file: " << (fs::is_regular_file(path) ? "true" : "false") << "\n";
-        ss << "is_dir: " << (fs::is_directory(path) ? "true" : "false") << "\n";
+        ss << "is_file: " << (fs::is_regular_file(*path) ? "true" : "false") << "\n";
+        ss << "is_dir: "  << (fs::is_directory(*path)    ? "true" : "false") << "\n";
 
-        if (fs::is_regular_file(path)) {
-            ss << "size: " << fs::file_size(path) << " bytes\n";
+        if (fs::is_regular_file(*path)) {
+            ss << "size: " << fs::file_size(*path) << " bytes\n";
         }
 
-        auto mtime = fs::last_write_time(path);
-        auto time_t_val = std::chrono::duration_cast<std::chrono::seconds>(
-            mtime.time_since_epoch()).count();
-        ss << "modified: " << std::ctime(reinterpret_cast<time_t*>(&time_t_val));
+        auto mtime = fs::last_write_time(*path);
+        // fix #2: use static_cast instead of reinterpret_cast (UB)
+        time_t t = static_cast<time_t>(
+            std::chrono::duration_cast<std::chrono::seconds>(mtime.time_since_epoch()).count());
+        ss << "modified: " << std::ctime(&t);
 
         return ToolResult::ok(ss.str());
     } catch (const std::exception& e) {
@@ -200,112 +194,107 @@ ToolResult tool_file_info(const ToolArgs& args) {
 // Write tool implementations
 // ============================================================================
 
+// Helper: write content atomically via a .ccl.tmp file; returns error string on failure.
+static std::string atomic_write(const std::string& path, const std::string& content) {
+    std::string tmp_path = path + ".ccl.tmp";
+    {
+        std::ofstream tmp_file(tmp_path);
+        if (!tmp_file) return "Failed to create temporary file: " + tmp_path;
+        tmp_file << content;
+        if (!tmp_file.good()) return "Failed to write to temporary file: " + tmp_path;
+    }
+    try {
+        fs::rename(tmp_path, path);
+    } catch (const std::exception& e) {
+        try { fs::remove(tmp_path); } catch (...) {}
+        return "Failed to rename temporary file: " + std::string(e.what());
+    }
+    return "";
+}
+
 // Helper: Generate a unified diff (simple line-based)
 static std::string generate_diff(const std::string& old_content, const std::string& new_content, const std::string& path) {
-    // Split into lines
     auto split_lines = [](const std::string& s) {
         std::vector<std::string> lines;
         std::istringstream iss(s);
         std::string line;
-        while (std::getline(iss, line)) {
-            lines.push_back(line);
-        }
+        while (std::getline(iss, line)) lines.push_back(line);
         return lines;
     };
 
     std::vector<std::string> old_lines = split_lines(old_content);
     std::vector<std::string> new_lines = split_lines(new_content);
 
-    // If either is > 500 lines, just report size change
     if (old_lines.size() > 500 || new_lines.size() > 500) {
         return "content changed: " + std::to_string(old_content.size()) + " bytes -> " +
                std::to_string(new_content.size()) + " bytes";
     }
 
-    // Build simple unified diff header
     std::ostringstream diff;
     diff << "--- " << path << " (old)\n";
     diff << "+++ " << path << " (new)\n";
     diff << "@@ -1," << old_lines.size() << " +1," << new_lines.size() << " @@\n";
 
-    // Simple line-by-line comparison (not a true LCS, but good enough for display)
     size_t old_idx = 0, new_idx = 0;
     while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
         if (old_idx < old_lines.size() && new_idx < new_lines.size() &&
             old_lines[old_idx] == new_lines[new_idx]) {
-            // Same line
             diff << " " << old_lines[old_idx] << "\n";
-            ++old_idx;
-            ++new_idx;
+            ++old_idx; ++new_idx;
         } else if (old_idx < old_lines.size() &&
                    (new_idx >= new_lines.size() || old_lines[old_idx] != new_lines[new_idx])) {
-            // Removed line
-            diff << "-" << old_lines[old_idx] << "\n";
-            ++old_idx;
+            diff << "-" << old_lines[old_idx++] << "\n";
         } else {
-            // Added line
-            diff << "+" << new_lines[new_idx] << "\n";
-            ++new_idx;
+            diff << "+" << new_lines[new_idx++] << "\n";
         }
     }
-
     return diff.str();
 }
 
 ToolResult tool_write_file(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    auto content_val = args.find("content");
-
-    if (path_val == args.end() || content_val == args.end()) {
-        return ToolResult::fail("Missing 'path' or 'content' argument");
-    }
-
-    if (!path_val->second.is_string() || !content_val->second.is_string()) {
-        return ToolResult::fail("'path' and 'content' must be strings");
-    }
-
-    std::string path = path_val->second.as_string();
-    std::string new_content = content_val->second.as_string();
+    std::string err;
+    auto path        = arg_str(args, "path",    err); if (!path)        return ToolResult::fail(err);
+    auto new_content = arg_str(args, "content", err); if (!new_content) return ToolResult::fail(err);
 
     try {
-        // Read existing content (if file exists)
         std::string old_content;
-        if (fs::exists(path)) {
-            std::ifstream file(path);
-            if (file) {
-                std::ostringstream ss;
-                ss << file.rdbuf();
-                old_content = ss.str();
-            }
+        if (fs::exists(*path)) {
+            std::ifstream file(*path);
+            if (file) { std::ostringstream ss; ss << file.rdbuf(); old_content = ss.str(); }
         }
 
-        // Generate diff
-        std::string diff = generate_diff(old_content, new_content, path);
+        std::string diff = generate_diff(old_content, *new_content, *path);
+        std::string write_err = atomic_write(*path, *new_content);
+        if (!write_err.empty()) return ToolResult::fail(write_err);
+        return ToolResult::ok(diff);
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+}
 
-        // Write to temporary file
-        std::string tmp_path = path + ".ccl.tmp";
-        {
-            std::ofstream tmp_file(tmp_path);
-            if (!tmp_file) {
-                return ToolResult::fail("Failed to create temporary file: " + tmp_path);
-            }
-            tmp_file << new_content;
-            if (!tmp_file.good()) {
-                return ToolResult::fail("Failed to write to temporary file: " + tmp_path);
-            }
-        }
+ToolResult tool_edit_file(const ToolArgs& args) {
+    std::string err;
+    auto path    = arg_str(args, "path",    err); if (!path)    return ToolResult::fail(err);
+    auto old_str = arg_str(args, "old_str", err); if (!old_str) return ToolResult::fail(err);
+    auto new_str = arg_str(args, "new_str", err); if (!new_str) return ToolResult::fail(err);
 
-        // Atomic rename
-        try {
-            fs::rename(tmp_path, path);
-        } catch (const std::exception& e) {
-            // Clean up temp file on failure
-            try {
-                fs::remove(tmp_path);
-            } catch (...) {}
-            return ToolResult::fail("Failed to rename temporary file: " + std::string(e.what()));
-        }
+    try {
+        if (!fs::exists(*path)) return ToolResult::fail("File not found: " + *path);
 
+        std::ifstream in(*path);
+        if (!in) return ToolResult::fail("Cannot open file: " + *path);
+        std::ostringstream ss; ss << in.rdbuf();
+        std::string content = ss.str();
+
+        size_t pos = content.find(*old_str);
+        if (pos == std::string::npos) return ToolResult::fail("old_str not found in file");
+        if (content.find(*old_str, pos + 1) != std::string::npos)
+            return ToolResult::fail("old_str is ambiguous (appears more than once)");
+
+        std::string new_content = content.substr(0, pos) + *new_str + content.substr(pos + old_str->size());
+        std::string diff = generate_diff(content, new_content, *path);
+        std::string write_err = atomic_write(*path, new_content);
+        if (!write_err.empty()) return ToolResult::fail(write_err);
         return ToolResult::ok(diff);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
@@ -313,72 +302,42 @@ ToolResult tool_write_file(const ToolArgs& args) {
 }
 
 ToolResult tool_create_dir(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    if (path_val == args.end()) {
-        return ToolResult::fail("Missing 'path' argument");
-    }
-
-    if (!path_val->second.is_string()) {
-        return ToolResult::fail("'path' must be a string");
-    }
-
-    std::string path = path_val->second.as_string();
+    std::string err;
+    auto path = arg_str(args, "path", err);
+    if (!path) return ToolResult::fail(err);
 
     try {
-        if (fs::exists(path)) {
-            if (fs::is_directory(path)) {
-                return ToolResult::ok("already exists: " + path);
-            } else {
-                return ToolResult::fail("path exists but is not a directory: " + path);
-            }
+        if (fs::exists(*path)) {
+            if (fs::is_directory(*path)) return ToolResult::ok("already exists: " + *path);
+            return ToolResult::fail("path exists but is not a directory: " + *path);
         }
-
-        fs::create_directories(path);
-        return ToolResult::ok("created: " + path);
+        fs::create_directories(*path);
+        return ToolResult::ok("created: " + *path);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
 }
 
 ToolResult tool_delete_file(const ToolArgs& args) {
-    auto path_val = args.find("path");
-    if (path_val == args.end()) {
-        return ToolResult::fail("Missing 'path' argument");
-    }
-
-    if (!path_val->second.is_string()) {
-        return ToolResult::fail("'path' must be a string");
-    }
-
-    std::string path = path_val->second.as_string();
+    std::string err;
+    auto path = arg_str(args, "path", err);
+    if (!path) return ToolResult::fail(err);
 
     try {
-        if (!fs::exists(path)) {
-            return ToolResult::fail("not found: " + path);
-        }
-
-        if (!fs::is_regular_file(path)) {
-            return ToolResult::fail("not a regular file: " + path);
-        }
-
-        fs::remove(path);
-        return ToolResult::ok("deleted: " + path);
+        if (!fs::exists(*path)) return ToolResult::fail("not found: " + *path);
+        if (!fs::is_regular_file(*path)) return ToolResult::fail("not a regular file: " + *path);
+        fs::remove(*path);
+        return ToolResult::ok("deleted: " + *path);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
 }
 
 ToolResult tool_run_shell(const ToolArgs& args) {
-    auto cmd_val = args.find("command");
-    if (cmd_val == args.end()) {
-        return ToolResult::fail("Missing 'command' argument");
-    }
-
-    if (!cmd_val->second.is_string()) {
-        return ToolResult::fail("'command' must be a string");
-    }
-
-    std::string command = cmd_val->second.as_string();
+    std::string err;
+    auto command_opt = arg_str(args, "command", err);
+    if (!command_opt) return ToolResult::fail(err);
+    std::string command = *command_opt;
 
     // Get optional cwd
     std::string cwd;
@@ -498,7 +457,7 @@ ToolResult tool_run_shell(const ToolArgs& args) {
 // Registry factory
 // ============================================================================
 
-ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
+ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
     ToolRegistry registry;
 
     // Read-only tools: always registered
@@ -525,9 +484,10 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
     {
         Tool tool;
         tool.def.name = "search_files";
-        tool.def.description = "Search files for a regex pattern";
+        tool.def.description = "Search files for a regex pattern (skips hidden directories like .git)";
         tool.def.params.push_back({"path", "string", "Root path to search", true});
         tool.def.params.push_back({"pattern", "string", "Regex pattern to match", true});
+        tool.def.params.push_back({"file_glob", "string", "Optional glob filter, e.g. '*.cpp'", false});
         tool.fn = tool_search_files;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
@@ -552,6 +512,18 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
             tool.def.params.push_back({"path", "string", "Path to file", true});
             tool.def.params.push_back({"content", "string", "Content to write", true});
             tool.fn = tool_write_file;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+
+        {
+            Tool tool;
+            tool.def.name = "edit_file";
+            tool.def.description = "Replace an exact string in a file (old_str must appear exactly once)";
+            tool.def.params.push_back({"path",    "string", "Path to file",                    true});
+            tool.def.params.push_back({"old_str", "string", "Exact text to replace",           true});
+            tool.def.params.push_back({"new_str", "string", "Replacement text",                true});
+            tool.fn = tool_edit_file;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
         }

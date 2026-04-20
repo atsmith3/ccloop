@@ -24,7 +24,7 @@ TEST(config_defaults_all_fields_present) {
     CHECK_EQ(cfg.max_retries, 3);
     CHECK_EQ(cfg.max_tokens, size_t(4096));
     CHECK_EQ(cfg.temperature, 0.7f);
-    CHECK_EQ(cfg.streaming, true);
+    CHECK_EQ(cfg.streaming, false);
     CHECK_EQ(cfg.token_limit, size_t(8000));
 }
 

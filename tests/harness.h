@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <string>
+#include <type_traits>
 #include <vector>
 #include <functional>
 #include <sstream>
@@ -58,7 +59,9 @@ struct TestRegistrar {
     } } while(0)
 
 #define CHECK_EQ(a, b) \
-    do { auto _a = (a); auto _b = (b); if (_a != _b) { \
+    do { auto _a = (a); auto _b = (b); \
+        using _CT = std::common_type_t<decltype(_a), decltype(_b)>; \
+        if (static_cast<_CT>(_a) != static_cast<_CT>(_b)) { \
         std::ostringstream _s; \
         _s << "CHECK_EQ(" #a ", " #b ") at " __FILE__ ":" << __LINE__; \
         throw std::runtime_error(_s.str()); \

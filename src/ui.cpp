@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "json.h"
 #include <iostream>
 
 void Ui::show_message(std::string_view role, std::string_view content) {
@@ -6,17 +7,20 @@ void Ui::show_message(std::string_view role, std::string_view content) {
     std::cout.flush();
 }
 
+// Truncate a string to max_len, appending "..." if cut
+static std::string truncate(const std::string& s, size_t max_len) {
+    if (s.size() <= max_len) return s;
+    return s.substr(0, max_len) + "...";
+}
+
 void Ui::show_tool_call(const ToolCall& call, ToolSource source) {
     std::cout << "[call] " << call.name;
 
-    // Show first few args (truncate if too long)
     size_t arg_count = 0;
     for (const auto& [key, val] : call.args) {
-        if (arg_count >= 3) {
-            std::cout << " ...";
-            break;
-        }
-        std::cout << " " << key << "=...";
+        if (arg_count >= 3) { std::cout << " ..."; break; }
+        std::string val_str = val.is_string() ? val.as_string() : to_json(val);
+        std::cout << " " << key << "=" << truncate(val_str, 40);
         ++arg_count;
     }
 
@@ -24,7 +28,7 @@ void Ui::show_tool_call(const ToolCall& call, ToolSource source) {
     std::cout.flush();
 }
 
-void Ui::show_tool_result(const ToolCall& call, const ToolResult& result) {
+void Ui::show_tool_result(const ToolCall& /*call*/, const ToolResult& result) {
     std::string status = result.success ? "OK" : "ERROR";
 
     if (result.success) {
@@ -54,7 +58,14 @@ void Ui::show_error(std::string_view msg) {
 }
 
 Approval Ui::request_approval(const ToolCall& call) {
-    std::cout << "Approve " << call.name << "? [y/n]: ";
+    std::cout << "Approve " << call.name;
+    size_t arg_count = 0;
+    for (const auto& [key, val] : call.args) {
+        if (arg_count++ >= 3) { std::cout << " ..."; break; }
+        std::string val_str = val.is_string() ? val.as_string() : to_json(val);
+        std::cout << " " << key << "=" << truncate(val_str, 60);
+    }
+    std::cout << "? [y/n]: ";
     std::cout.flush();
 
     std::string line;

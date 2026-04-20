@@ -38,7 +38,7 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
                                           bool stream) {
     std::ostringstream ss;
     ss << "{"
-       << "\"model\":" << "\"" << cfg.model << "\""
+       << "\"model\":" << "\"" << escape_json(cfg.model) << "\""
        << ",\"messages\":" << ctx.to_json()
        << ",\"max_tokens\":" << cfg.max_tokens
        << ",\"temperature\":" << cfg.temperature
@@ -54,8 +54,8 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
             ss << "{"
                << "\"type\":\"function\","
                << "\"function\":{"
-               << "\"name\":\"" << tool.name << "\""
-               << ",\"description\":\"" << tool.description << "\""
+               << "\"name\":\"" << escape_json(tool.name) << "\""
+               << ",\"description\":\"" << escape_json(tool.description) << "\""
                << ",\"parameters\":{"
                << "\"type\":\"object\","
                << "\"properties\":{";
@@ -63,9 +63,9 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
             for (size_t j = 0; j < tool.params.size(); ++j) {
                 if (j > 0) ss << ",";
                 const auto& param = tool.params[j];
-                ss << "\"" << param.name << "\":"
-                   << "{\"type\":\"" << param.type << "\""
-                   << ",\"description\":\"" << param.description << "\""
+                ss << "\"" << escape_json(param.name) << "\":"
+                   << "{\"type\":\"" << escape_json(param.type) << "\""
+                   << ",\"description\":\"" << escape_json(param.description) << "\""
                    << "}";
             }
 
@@ -75,7 +75,7 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
             for (const auto& param : tool.params) {
                 if (param.required) {
                     if (!first) ss << ",";
-                    ss << "\"" << param.name << "\"";
+                    ss << "\"" << escape_json(param.name) << "\"";
                     first = false;
                 }
             }
@@ -214,13 +214,14 @@ LlmClient::HttpResult LlmClient::send_with_retry(const std::string& request_body
 
         CURLcode res = curl_easy_perform(curl_);
         if (res != CURLE_OK) {
+            curl_slist_free_all(headers);  // fix #3: free headers on transport error
             return HttpResult{500, std::string(curl_easy_strerror(res))};
         }
 
         long http_code = 0;
         curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &http_code);
 
-        if (!is_retryable_status(http_code)) {
+        if (!is_retryable_status(static_cast<int>(http_code))) {
             curl_slist_free_all(headers);
             return HttpResult{static_cast<int>(http_code), response_body};
         }
@@ -247,9 +248,9 @@ LlmResponse LlmClient::complete(const ContextManager& context,
 
     if (http_result.status != 200) {
         LlmResponse response;
-        std::string body_preview = http_result.body.substr(0, 200);
-        response.content = "[ERROR] HTTP " + std::to_string(http_result.status)
-                         + ": " + body_preview;
+        response.is_error = true;
+        response.content = "HTTP " + std::to_string(http_result.status)
+                         + ": " + http_result.body.substr(0, 200);
         return response;
     }
 
@@ -434,8 +435,8 @@ LlmResponse LlmClient::complete_streaming(
 
     if (http_result.status != 200) {
         LlmResponse response;
-        // Body is unavailable for streaming (consumed by SSE callback); show status only
-        response.content = "[ERROR] HTTP " + std::to_string(http_result.status);
+        response.is_error = true;
+        response.content = "HTTP " + std::to_string(http_result.status);
         return response;
     }
 

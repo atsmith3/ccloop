@@ -74,6 +74,7 @@ struct Message {
 
 // LLM response
 struct LlmResponse {
+    bool                  is_error = false;   // set when transport/HTTP error occurred
     std::string           content;
     std::vector<ToolCall> tool_calls;
     std::string           finish_reason;

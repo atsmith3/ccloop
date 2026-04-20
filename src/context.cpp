@@ -112,24 +112,18 @@ size_t ContextManager::find_safe_drop_end(size_t start) const {
 }
 
 void ContextManager::compact() {
-    if (!needs_compaction()) return;
-
     size_t first_non_system = index_of_first_non_system();
-    if (first_non_system >= messages_.size()) {
-        // Only system messages, can't compact
-        return;
-    }
+    if (first_non_system >= messages_.size()) return;
 
-    // Find safe drop boundary and drop
-    size_t drop_end = find_safe_drop_end(first_non_system);
-    if (drop_end > first_non_system) {
-        // Calculate tokens being removed
+    // Drop oldest message groups until below the token limit (or no progress possible)
+    while (needs_compaction()) {
+        size_t drop_end = find_safe_drop_end(first_non_system);
+        if (drop_end <= first_non_system) break;  // no safe boundary found, stop
+
         size_t tokens_removed = 0;
         for (size_t i = first_non_system; i < drop_end; ++i) {
             tokens_removed += messages_[i].estimated_tokens;
         }
-
-        // Remove messages
         messages_.erase(messages_.begin() + first_non_system,
                         messages_.begin() + drop_end);
         total_tokens_ -= tokens_removed;

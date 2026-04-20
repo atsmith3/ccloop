@@ -91,18 +91,6 @@ static void parse_toml(const std::string& path, Config& cfg) {
     }
 }
 
-// Try to load config from file; return true if successful
-static bool try_load_file(const std::string& path, Config& cfg) {
-    std::ifstream file(path);
-    if (!file) return false;
-    try {
-        parse_toml(path, cfg);
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
 Config Config::defaults() {
     return Config();
 }

@@ -181,6 +181,15 @@ TEST(llm_parse_malformed_response) {
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(0));
 }
 
+TEST(llm_parse_response_is_error_false_for_success) {
+    std::string response = R"({
+        "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+    })";
+    LlmResponse r = LlmClient::parse_response_json(response);
+    CHECK(!r.is_error);
+}
+
 TEST(llm_retryable_error_429) {
     CHECK(LlmClient::is_retryable_status(429));
 }

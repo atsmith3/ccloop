@@ -377,12 +377,129 @@ TEST(tool_registry_act_mode_has_write_tools) {
     ToolRegistry registry = make_registry(AgentMode::Act, cfg);
 
     auto defs = registry.definitions();
-    // Should have 8 tools: 4 read-only + 4 write
-    CHECK_EQ(defs.size(), size_t(8));
+    // Should have 9 tools: 4 read-only + 5 write (write_file, edit_file, create_dir, delete_file, run_shell)
+    CHECK_EQ(defs.size(), size_t(9));
 
     // Verify write tools are present
     auto write_file = registry.find("write_file");
+    auto edit_file  = registry.find("edit_file");
     auto delete_file = registry.find("delete_file");
     CHECK(write_file.has_value());
+    CHECK(edit_file.has_value());
     CHECK(delete_file.has_value());
+}
+
+// ============================================================================
+// edit_file tool tests
+// ============================================================================
+
+TEST(tool_edit_file_replaces_string) {
+    TmpDir tmp;
+    std::string file_path = tmp.path + "/edit.txt";
+    { std::ofstream f(file_path); f << "hello world\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(file_path);
+    args["old_str"].data.emplace<std::string>("hello");
+    args["new_str"].data.emplace<std::string>("goodbye");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(result.success);
+
+    std::ifstream f(file_path);
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    CHECK(content.find("goodbye") != std::string::npos);
+    CHECK(content.find("hello") == std::string::npos);
+}
+
+TEST(tool_edit_file_not_found_returns_error) {
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("/nonexistent/file.txt");
+    args["old_str"].data.emplace<std::string>("foo");
+    args["new_str"].data.emplace<std::string>("bar");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(!result.success);
+}
+
+TEST(tool_edit_file_old_str_missing_returns_error) {
+    TmpDir tmp;
+    std::string file_path = tmp.path + "/edit.txt";
+    { std::ofstream f(file_path); f << "hello world\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(file_path);
+    args["old_str"].data.emplace<std::string>("nomatch");
+    args["new_str"].data.emplace<std::string>("bar");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("not found") != std::string::npos);
+}
+
+TEST(tool_edit_file_ambiguous_returns_error) {
+    TmpDir tmp;
+    std::string file_path = tmp.path + "/edit.txt";
+    { std::ofstream f(file_path); f << "foo foo\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(file_path);
+    args["old_str"].data.emplace<std::string>("foo");
+    args["new_str"].data.emplace<std::string>("bar");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("ambiguous") != std::string::npos);
+}
+
+TEST(tool_edit_file_diff_in_result) {
+    TmpDir tmp;
+    std::string file_path = tmp.path + "/edit.txt";
+    { std::ofstream f(file_path); f << "line1\nline2\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(file_path);
+    args["old_str"].data.emplace<std::string>("line2");
+    args["new_str"].data.emplace<std::string>("lineX");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(result.success);
+    CHECK(result.content.find("lineX") != std::string::npos ||
+          result.content.find("+++")   != std::string::npos);
+}
+
+// ============================================================================
+// search_files file_glob filter tests
+// ============================================================================
+
+TEST(tool_search_files_glob_filter_matches) {
+    TmpDir tmp;
+    { std::ofstream f(tmp.path + "/code.cpp"); f << "hello cpp\n"; }
+    { std::ofstream f(tmp.path + "/notes.txt"); f << "hello txt\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(tmp.path);
+    args["pattern"].data.emplace<std::string>("hello");
+    args["file_glob"].data.emplace<std::string>("*.cpp");
+
+    ToolResult result = tool_search_files(args);
+    CHECK(result.success);
+    CHECK(result.content.find("code.cpp") != std::string::npos);
+    CHECK(result.content.find("notes.txt") == std::string::npos);
+}
+
+TEST(tool_search_files_skips_hidden_dirs) {
+    TmpDir tmp;
+    fs::create_directories(tmp.path + "/.git");
+    { std::ofstream f(tmp.path + "/.git/secret"); f << "hello secret\n"; }
+    { std::ofstream f(tmp.path + "/visible.txt"); f << "hello visible\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(tmp.path);
+    args["pattern"].data.emplace<std::string>("hello");
+
+    ToolResult result = tool_search_files(args);
+    CHECK(result.success);
+    CHECK(result.content.find("visible.txt") != std::string::npos);
+    CHECK(result.content.find(".git") == std::string::npos);
 }

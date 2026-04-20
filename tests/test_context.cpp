@@ -84,7 +84,7 @@ TEST(context_token_estimation) {
 TEST(context_sync_token_count) {
     ContextManager ctx(8000);
     ctx.push_user("some text");
-    size_t estimated = ctx.total_tokens();
+    ctx.total_tokens();  // verify it doesn't throw
 
     LlmResponse::Usage usage;
     usage.total_tokens = 123;
