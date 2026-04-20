@@ -389,7 +389,9 @@ ToolResult tool_run_shell(const ToolArgs& args) {
         close(pipefd[1]);
 
         if (!cwd.empty()) {
-            chdir(cwd.c_str());
+            if (chdir(cwd.c_str()) != 0) {
+                _exit(126);  // cwd failed
+            }
         }
 
         execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);

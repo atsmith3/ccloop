@@ -543,3 +543,112 @@ TEST(tool_read_file_expands_tilde) {
 
     fs::remove(real_path);  // clean up
 }
+
+TEST(tool_list_dir_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~");
+
+    ToolResult result = tool_list_dir(args);
+    CHECK(result.success);
+}
+
+TEST(tool_file_info_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~");
+
+    ToolResult result = tool_file_info(args);
+    CHECK(result.success);
+    CHECK(result.content.find("exists: true") != std::string::npos);
+}
+
+TEST(tool_create_dir_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    std::string real_path = std::string(home) + "/ccl_tilde_dir_test";
+    fs::remove_all(real_path);
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~/ccl_tilde_dir_test");
+
+    ToolResult result = tool_create_dir(args);
+    CHECK(result.success);
+    CHECK(fs::exists(real_path));
+
+    fs::remove_all(real_path);
+}
+
+TEST(tool_edit_file_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    std::string real_path = std::string(home) + "/ccl_tilde_edit_test.txt";
+    { std::ofstream f(real_path); f << "original content\n"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~/ccl_tilde_edit_test.txt");
+    args["old_str"].data.emplace<std::string>("original");
+    args["new_str"].data.emplace<std::string>("replaced");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(result.success);
+
+    std::ifstream f(real_path);
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    CHECK(content.find("replaced") != std::string::npos);
+
+    fs::remove(real_path);
+}
+
+TEST(tool_delete_file_expands_tilde) {
+    const char* home = std::getenv("HOME");
+    if (!home) return;
+
+    std::string real_path = std::string(home) + "/ccl_tilde_delete_test.txt";
+    { std::ofstream f(real_path); f << "delete me"; }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>("~/ccl_tilde_delete_test.txt");
+
+    ToolResult result = tool_delete_file(args);
+    CHECK(result.success);
+    CHECK(!fs::exists(real_path));
+}
+
+TEST(tool_run_shell_cwd_sets_working_dir) {
+    TmpDir tmp;
+
+    ToolArgs args;
+    args["command"].data.emplace<std::string>("pwd");
+    args["cwd"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_run_shell(args);
+    CHECK(result.success);
+    // Output should contain the temp dir path (pwd resolves symlinks, so check suffix)
+    CHECK(result.content.find(tmp.path.substr(tmp.path.rfind('/') + 1)) != std::string::npos
+          || result.content.find(tmp.path) != std::string::npos);
+}
+
+// ============================================================================
+// ToolResult::to_context_string tests
+// ============================================================================
+
+TEST(tool_result_to_context_string_ok) {
+    ToolResult result = ToolResult::ok("file contents here");
+    std::string s = result.to_context_string();
+    CHECK(s.find("[ERROR]") == std::string::npos);
+    CHECK_EQ(s, std::string("file contents here"));
+}
+
+TEST(tool_result_to_context_string_fail) {
+    ToolResult result = ToolResult::fail("something went wrong");
+    std::string s = result.to_context_string();
+    CHECK(s.find("[ERROR]") != std::string::npos);
+    CHECK(s.find("something went wrong") != std::string::npos);
+}

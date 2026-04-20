@@ -77,11 +77,6 @@ Approval Ui::request_approval(const ToolCall& call) {
     return Approval::Reject;
 }
 
-void Ui::append_chunk(std::string_view chunk) {
-    std::cout << chunk;
-    std::cout.flush();
-}
-
 std::string Ui::wait_for_input() {
     std::cout << "> ";
     std::cout.flush();

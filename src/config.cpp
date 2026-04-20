@@ -3,8 +3,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
-#include <algorithm>
-#include <cctype>
 
 namespace fs = std::filesystem;
 
@@ -80,11 +78,6 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.max_tokens = std::stoul(value);
         } else if (key == "temperature") {
             cfg.temperature = std::stof(value);
-        } else if (key == "streaming") {
-            std::string val_lower = value;
-            std::transform(val_lower.begin(), val_lower.end(),
-                           val_lower.begin(), [](unsigned char c) { return std::tolower(c); });
-            cfg.streaming = (val_lower == "true");
         } else if (key == "token_limit") {
             cfg.token_limit = std::stoul(value);
         }

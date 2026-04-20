@@ -8,7 +8,7 @@ TEST(llm_request_build_basic) {
     ContextManager ctx(8000);
     ctx.push_user("hello");
 
-    std::string request = LlmClient::build_request_json(ctx, {}, cfg, false);
+    std::string request = LlmClient::build_request_json(ctx, {}, cfg);
     JsonValue parsed = parse_json(request);
 
     CHECK(parsed.get("model"));
@@ -28,40 +28,13 @@ TEST(llm_request_build_with_tools) {
     tool.params.push_back({"path", "string", "File path", true});
 
     std::vector<ToolDef> tools = {tool};
-    std::string request = LlmClient::build_request_json(ctx, tools, cfg, false);
+    std::string request = LlmClient::build_request_json(ctx, tools, cfg);
     JsonValue parsed = parse_json(request);
 
     CHECK(parsed.get("tools").has_value());
     auto tools_val = parsed.get("tools");
     CHECK(tools_val->is_array());
     CHECK(tools_val->as_array().size() > 0);
-}
-
-TEST(llm_request_no_stream) {
-    Config cfg = Config::defaults();
-    cfg.streaming = false;
-    ContextManager ctx(8000);
-    ctx.push_user("test");
-
-    std::string request = LlmClient::build_request_json(ctx, {}, cfg, false);
-    JsonValue parsed = parse_json(request);
-
-    auto stream_val = parsed.get("stream");
-    CHECK(stream_val.has_value());
-    CHECK_EQ(stream_val->as_bool(), false);
-}
-
-TEST(llm_request_with_stream) {
-    Config cfg = Config::defaults();
-    ContextManager ctx(8000);
-    ctx.push_user("test");
-
-    std::string request = LlmClient::build_request_json(ctx, {}, cfg, true);
-    JsonValue parsed = parse_json(request);
-
-    auto stream_val = parsed.get("stream");
-    CHECK(stream_val.has_value());
-    CHECK_EQ(stream_val->as_bool(), true);
 }
 
 TEST(llm_parse_response_text_only) {
@@ -190,6 +163,19 @@ TEST(llm_parse_response_is_error_false_for_success) {
     CHECK(!r.is_error);
 }
 
+TEST(llm_build_request_json_escapes_model_name) {
+    Config cfg = Config::defaults();
+    cfg.model = "my-\"model\"";
+    ContextManager ctx(8000);
+    ctx.push_user("test");
+
+    std::string request = LlmClient::build_request_json(ctx, {}, cfg);
+    // The literal quote chars must be escaped as \"
+    CHECK(request.find("my-\\\"model\\\"") != std::string::npos);
+    // The raw unescaped form must NOT appear as a bare string boundary
+    CHECK(request.find("\"my-\"model\"\"") == std::string::npos);
+}
+
 TEST(llm_retryable_error_429) {
     CHECK(LlmClient::is_retryable_status(429));
 }
@@ -206,102 +192,3 @@ TEST(llm_non_retryable_error_401) {
     CHECK(!LlmClient::is_retryable_status(401));
 }
 
-// ============================================================================
-// Streaming/SSE tests
-// ============================================================================
-
-TEST(llm_sse_extract_data_returns_json) {
-    std::string line = "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}";
-    auto result = LlmClient::extract_sse_data(line);
-    CHECK(result.has_value());
-    CHECK_EQ(result.value(), std::string("{\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}"));
-}
-
-TEST(llm_sse_extract_done_returns_nullopt) {
-    std::string line = "data: [DONE]";
-    auto result = LlmClient::extract_sse_data(line);
-    CHECK(!result.has_value());
-}
-
-TEST(llm_sse_extract_non_data_line_returns_nullopt) {
-    std::string line = ": comment line";
-    auto result = LlmClient::extract_sse_data(line);
-    CHECK(!result.has_value());
-
-    std::string empty = "";
-    auto result2 = LlmClient::extract_sse_data(empty);
-    CHECK(!result2.has_value());
-}
-
-TEST(llm_sse_accumulate_content_chunk) {
-    LlmResponse resp;
-    std::string chunks_received;
-    std::string data = R"({"choices":[{"delta":{"content":"hello"}}]})";
-    LlmClient::accumulate_sse_chunk(resp, data, [&](std::string_view c){ chunks_received += c; });
-    CHECK_EQ(resp.content, std::string("hello"));
-    CHECK_EQ(chunks_received, std::string("hello"));
-}
-
-TEST(llm_sse_accumulate_tool_call_start) {
-    LlmResponse resp;
-    std::string data = R"({
-        "choices":[{
-            "delta":{
-                "tool_calls":[{
-                    "index":0,
-                    "id":"call_1",
-                    "function":{"name":"read_file"}
-                }]
-            }
-        }]
-    })";
-    LlmClient::accumulate_sse_chunk(resp, data, [](std::string_view){});
-    CHECK_EQ(resp.partial_tool_calls.size(), size_t(1));
-    CHECK_EQ(resp.partial_tool_calls[0].id, std::string("call_1"));
-    CHECK_EQ(resp.partial_tool_calls[0].name, std::string("read_file"));
-}
-
-TEST(llm_sse_accumulate_tool_call_args_fragment) {
-    LlmResponse resp;
-    std::string data1 = R"({
-        "choices":[{
-            "delta":{
-                "tool_calls":[{
-                    "index":0,
-                    "function":{"arguments":"{\"pat"}
-                }]
-            }
-        }]
-    })";
-    LlmClient::accumulate_sse_chunk(resp, data1, [](std::string_view){});
-
-    std::string data2 = R"({
-        "choices":[{
-            "delta":{
-                "tool_calls":[{
-                    "index":0,
-                    "function":{"arguments":"h\":\"/file\"}"}
-                }]
-            }
-        }]
-    })";
-    LlmClient::accumulate_sse_chunk(resp, data2, [](std::string_view){});
-
-    CHECK_EQ(resp.partial_tool_calls[0].accumulated_args, std::string("{\"path\":\"/file\"}"));
-}
-
-TEST(llm_sse_finalize_tool_calls_parses_args) {
-    LlmResponse resp;
-    LlmResponse::PartialToolCall ptc;
-    ptc.id = "call_1";
-    ptc.name = "read_file";
-    ptc.accumulated_args = "{\"path\":\"/etc/passwd\"}";
-    resp.partial_tool_calls.push_back(ptc);
-
-    LlmClient::finalize_streaming_tool_calls(resp);
-
-    CHECK_EQ(resp.tool_calls.size(), size_t(1));
-    CHECK_EQ(resp.tool_calls[0].name, std::string("read_file"));
-    CHECK(resp.tool_calls[0].args.count("path") > 0);
-    CHECK_EQ(resp.partial_tool_calls.size(), size_t(0));
-}

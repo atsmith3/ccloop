@@ -107,18 +107,7 @@ void Agent::loop() {
                 context_.compact();
             }
 
-            LlmResponse response;
-            if (config_.streaming) {
-                // Use streaming
-                response = llm_.complete_streaming(context_, registry_.definitions(),
-                    [&](std::string_view chunk) { ui_.append_chunk(chunk); });
-                if (!response.content.empty()) {
-                    std::cout << "\n\n";
-                }
-            } else {
-                // Use blocking call
-                response = llm_.complete(context_, registry_.definitions());
-            }
+            LlmResponse response = llm_.complete(context_, registry_.definitions());
 
             if (response.is_error) {
                 // Error response: show to user but don't add to context or sync tokens
@@ -159,11 +148,8 @@ void Agent::loop() {
                 continue;
             }
 
-            // No tool calls and we have text response
-            if (!config_.streaming) {
-                // For non-streaming, show the message (streaming already printed it)
-                ui_.show_message("agent", response.content);
-            }
+            // No tool calls — show response
+            ui_.show_message("agent", response.content);
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
         }

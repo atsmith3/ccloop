@@ -24,7 +24,6 @@ TEST(config_defaults_all_fields_present) {
     CHECK_EQ(cfg.max_retries, 3);
     CHECK_EQ(cfg.max_tokens, size_t(4096));
     CHECK_EQ(cfg.temperature, 0.7f);
-    CHECK_EQ(cfg.streaming, false);
     CHECK_EQ(cfg.token_limit, size_t(8000));
 }
 
@@ -45,7 +44,6 @@ timeout_sec = 60
 max_retries = 5
 max_tokens  = 8192
 temperature = 0.5
-streaming   = false
 token_limit = 16000
 )";
     std::string path = create_temp_toml(content);
@@ -57,7 +55,6 @@ token_limit = 16000
     CHECK_EQ(cfg.max_retries, 5);
     CHECK_EQ(cfg.max_tokens, size_t(8192));
     CHECK_EQ(cfg.temperature, 0.5f);
-    CHECK_EQ(cfg.streaming, false);
     CHECK_EQ(cfg.token_limit, size_t(16000));
     fs::remove(path);
 }
@@ -80,13 +77,6 @@ TEST(config_int_value_parsed) {
     std::string path = create_temp_toml("timeout_sec = 120\n");
     Config cfg = Config::load(path);
     CHECK_EQ(cfg.timeout_sec, 120);
-    fs::remove(path);
-}
-
-TEST(config_bool_value_parsed) {
-    std::string path = create_temp_toml("streaming = false\n");
-    Config cfg = Config::load(path);
-    CHECK_EQ(cfg.streaming, false);
     fs::remove(path);
 }
 
@@ -121,6 +111,16 @@ TEST(config_env_var_endpoint_overrides) {
     unsetenv("CCL_ENDPOINT");
 
     fs::remove(path);
+}
+
+TEST(config_env_var_timeout_overrides) {
+    Config cfg = Config::defaults();
+    CHECK_EQ(cfg.timeout_sec, 30);
+
+    setenv("CCL_TIMEOUT", "60", 1);
+    Config::apply_env_overrides(cfg);
+    CHECK_EQ(cfg.timeout_sec, 60);
+    unsetenv("CCL_TIMEOUT");
 }
 
 TEST(config_search_project_local) {

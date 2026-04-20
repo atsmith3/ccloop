@@ -77,21 +77,12 @@ struct LlmResponse {
     bool                  is_error = false;   // set when transport/HTTP error occurred
     std::string           content;
     std::vector<ToolCall> tool_calls;
-    std::string           finish_reason;
-
     struct Usage {
         size_t prompt_tokens     = 0;
         size_t completion_tokens = 0;
         size_t total_tokens      = 0;
     } usage;
 
-    // Streaming accumulation -- internal use
-    struct PartialToolCall {
-        std::string id;
-        std::string name;
-        std::string accumulated_args;
-    };
-    std::vector<PartialToolCall> partial_tool_calls;
 };
 
 // Tool source for UI display

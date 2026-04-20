@@ -14,7 +14,6 @@ public:
     void show_mode       (AgentMode mode, size_t tokens_used, size_t token_limit);
     void update_tokens   (size_t used, size_t limit);
     void show_error      (std::string_view msg);
-    void append_chunk    (std::string_view chunk);  // for streaming output
 
     Approval    request_approval(const ToolCall& call);
     std::string wait_for_input();

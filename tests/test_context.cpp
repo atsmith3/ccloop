@@ -182,3 +182,90 @@ TEST(context_message_count) {
     ctx.push_user("user");
     CHECK_EQ(ctx.message_count(), size_t(2));
 }
+
+// ============================================================================
+// replace_system tests
+// ============================================================================
+
+TEST(context_replace_system_updates_content) {
+    ContextManager ctx(8000);
+    ctx.push_system("original system");
+    ctx.replace_system("new system");
+
+    std::string json = ctx.to_json();
+    JsonValue parsed = parse_json(json);
+    auto content = parsed.as_array()[0]->get("content");
+    CHECK_EQ(content->as_string(), std::string("new system"));
+}
+
+TEST(context_replace_system_updates_token_count) {
+    ContextManager ctx(8000);
+    ctx.push_system("short");
+    size_t before = ctx.total_tokens();
+
+    std::string long_prompt(400, 'x');  // ~100 tokens
+    ctx.replace_system(long_prompt);
+
+    CHECK(ctx.total_tokens() > before);
+}
+
+TEST(context_replace_system_preserves_conversation) {
+    ContextManager ctx(8000);
+    ctx.push_system("original");
+    ctx.push_user("user message");
+    ctx.push_assistant("assistant reply");
+
+    ctx.replace_system("updated system");
+
+    // All messages should still be there
+    CHECK_EQ(ctx.message_count(), size_t(3));
+
+    // First message should be the updated system prompt
+    std::string json = ctx.to_json();
+    JsonValue parsed = parse_json(json);
+    auto role0 = parsed.as_array()[0]->get("role");
+    auto content0 = parsed.as_array()[0]->get("content");
+    CHECK_EQ(role0->as_string(), std::string("system"));
+    CHECK_EQ(content0->as_string(), std::string("updated system"));
+}
+
+TEST(context_replace_system_when_none_exists_inserts_at_front) {
+    ContextManager ctx(8000);
+    ctx.push_user("user first");
+    ctx.replace_system("injected system");
+
+    CHECK_EQ(ctx.message_count(), size_t(2));
+    std::string json = ctx.to_json();
+    JsonValue parsed = parse_json(json);
+    auto role0 = parsed.as_array()[0]->get("role");
+    CHECK_EQ(role0->as_string(), std::string("system"));
+}
+
+TEST(context_sync_token_count_ignores_zero) {
+    ContextManager ctx(8000);
+    ctx.push_user("some text");
+    size_t before = ctx.total_tokens();
+    CHECK(before > 0);
+
+    // Syncing with zero should NOT overwrite the existing count
+    LlmResponse::Usage usage;
+    usage.total_tokens = 0;
+    ctx.sync_token_count(usage);
+
+    CHECK_EQ(ctx.total_tokens(), before);
+}
+
+TEST(context_compact_leaves_below_limit) {
+    ContextManager ctx(50);
+    ctx.push_system("system");
+    std::string long_msg(120, 'x');  // ~30 tokens each
+    ctx.push_user(long_msg);
+    ctx.push_user(long_msg);
+    ctx.push_user(long_msg);
+
+    CHECK(ctx.needs_compaction());
+    ctx.compact();
+
+    // After compaction the context must be below the limit
+    CHECK(!ctx.needs_compaction());
+}
