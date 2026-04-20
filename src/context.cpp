@@ -155,7 +155,12 @@ std::string ContextManager::to_json() const {
                 ss << "\"tool\"";
                 break;
         }
-        ss << ",\"content\":\"" << escape_json(msg.content) << "\"";
+        // Assistant messages with tool calls and no text use null content (OpenAI spec)
+        if (msg.role == Message::Role::Assistant && !msg.tool_calls.empty() && msg.content.empty()) {
+            ss << ",\"content\":null";
+        } else {
+            ss << ",\"content\":\"" << escape_json(msg.content) << "\"";
+        }
 
         // Tool call ID (for tool messages)
         if (msg.role == Message::Role::Tool && !msg.tool_call_id.empty()) {
@@ -171,7 +176,7 @@ std::string ContextManager::to_json() const {
                 ss << "{\"id\":\"" << escape_json(tc.id) << "\""
                    << ",\"type\":\"function\",\"function\":{"
                    << "\"name\":\"" << escape_json(tc.name) << "\""
-                   << ",\"arguments\":" << tc.arguments_json
+                   << ",\"arguments\":\"" << escape_json(tc.arguments_json) << "\""
                    << "}}";
             }
             ss << "]";

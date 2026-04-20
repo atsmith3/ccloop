@@ -29,7 +29,7 @@ TEST(context_push_assistant_with_tool_calls_serializes) {
     ToolCallRecord tc;
     tc.id = "call_123";
     tc.name = "read_file";
-    tc.arguments_json = "{\"path\":\"/etc/passwd\"}";
+    tc.arguments_json = "{\"path\":\"/tmp/test.txt\"}";
     calls.push_back(tc);
 
     ctx.push_assistant("I'll read that file", calls);
@@ -172,6 +172,43 @@ TEST(context_compact_keeps_tool_groups_together) {
             }
         }
     }
+}
+
+TEST(context_tool_call_only_message_has_null_content) {
+    // When an assistant message has tool calls but no text, content must be null (not "")
+    ContextManager ctx(8000);
+    ToolCallRecord tc;
+    tc.id   = "call_1";
+    tc.name = "list_dir";
+    tc.arguments_json = "{\"path\":\".\"}";
+    ctx.push_assistant("", {tc});  // empty text content
+
+    std::string json = ctx.to_json();
+    // "content":null must appear, "content":"" must not
+    CHECK(json.find("\"content\":null") != std::string::npos);
+    CHECK(json.find("\"content\":\"\"") == std::string::npos);
+}
+
+TEST(context_tool_call_arguments_serialized_as_string) {
+    ContextManager ctx(8000);
+    ToolCallRecord tc;
+    tc.id   = "call_1";
+    tc.name = "read_file";
+    tc.arguments_json = "{\"path\":\"/tmp/test.txt\"}";
+    ctx.push_assistant("", {tc});
+
+    std::string json = ctx.to_json();
+    JsonValue parsed = parse_json(json);
+    auto& msgs = parsed.as_array();
+    auto tc_arr = msgs[0]->get("tool_calls");
+    CHECK(tc_arr.has_value());
+    auto fn = tc_arr->as_array()[0]->get("function");
+    CHECK(fn.has_value());
+    auto args = fn->get("arguments");
+    CHECK(args.has_value());
+    // arguments must be a JSON string, not an object
+    CHECK(args->is_string());
+    CHECK(args->as_string().find("test.txt") != std::string::npos);
 }
 
 TEST(context_message_count) {
