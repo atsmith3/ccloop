@@ -28,7 +28,6 @@ struct Config {
     size_t      max_tokens  = 4096;
     float       temperature   = 0.7f;
     bool        debug         = false;
-    bool        enable_thinking = true;
 
     // Context settings
     size_t      token_limit = 8000;
