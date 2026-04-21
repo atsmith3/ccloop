@@ -123,6 +123,45 @@ TEST(config_env_var_timeout_overrides) {
     unsetenv("CCL_TIMEOUT");
 }
 
+TEST(config_permissions_defaults) {
+    Config cfg = Config::defaults();
+    CHECK(cfg.permissions.auto_approve_read);
+    CHECK(cfg.permissions.auto_approve_write);
+    CHECK(!cfg.permissions.auto_approve_delete);
+    CHECK(!cfg.permissions.auto_approve_shell);
+}
+
+TEST(config_permissions_from_toml) {
+    std::string content = R"(
+[permissions]
+read   = false
+write  = false
+delete = true
+shell  = true
+)";
+    std::string path = create_temp_toml(content);
+    Config cfg = Config::load(path);
+    CHECK(!cfg.permissions.auto_approve_read);
+    CHECK(!cfg.permissions.auto_approve_write);
+    CHECK(cfg.permissions.auto_approve_delete);
+    CHECK(cfg.permissions.auto_approve_shell);
+    fs::remove(path);
+}
+
+TEST(config_permissions_partial_override) {
+    std::string content = R"(
+[permissions]
+shell = true
+)";
+    std::string path = create_temp_toml(content);
+    Config cfg = Config::load(path);
+    CHECK(cfg.permissions.auto_approve_read);   // default unchanged
+    CHECK(cfg.permissions.auto_approve_write);  // default unchanged
+    CHECK(!cfg.permissions.auto_approve_delete); // default unchanged
+    CHECK(cfg.permissions.auto_approve_shell);  // overridden
+    fs::remove(path);
+}
+
 TEST(config_search_project_local) {
     // Create temp files in temp directory
     std::string tmpdir = fs::temp_directory_path().string();

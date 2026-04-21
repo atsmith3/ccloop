@@ -4,6 +4,13 @@
 #include <vector>
 #include <unordered_set>
 
+struct Permissions {
+    bool auto_approve_read   = true;   // read_file, list_dir, search_files, file_info
+    bool auto_approve_write  = true;   // write_file, edit_file, create_dir
+    bool auto_approve_delete = false;  // delete_file
+    bool auto_approve_shell  = false;  // run_shell
+};
+
 struct McpServerConfig {
     std::string name;
     std::string command;
@@ -25,6 +32,9 @@ struct Config {
 
     // Context settings
     size_t      token_limit = 8000;
+
+    // Tool approval permissions
+    Permissions permissions;
 
     // MCP servers (Phase 2)
     std::vector<McpServerConfig> mcp_servers;

@@ -169,8 +169,14 @@ void Agent::loop() {
 }
 
 bool Agent::requires_approval(const std::string& tool_name) const {
-    static const std::set<std::string> always_gated{"run_shell", "delete_file"};
-    return always_gated.count(tool_name) > 0;
+    static const std::set<std::string> read_tools  = {"read_file", "list_dir", "search_files", "file_info"};
+    static const std::set<std::string> write_tools = {"write_file", "edit_file", "create_dir"};
+
+    if (read_tools.count(tool_name))  return !config_.permissions.auto_approve_read;
+    if (write_tools.count(tool_name)) return !config_.permissions.auto_approve_write;
+    if (tool_name == "delete_file")   return !config_.permissions.auto_approve_delete;
+    if (tool_name == "run_shell")     return !config_.permissions.auto_approve_shell;
+    return true;  // unknown tool: gate by default
 }
 
 void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {

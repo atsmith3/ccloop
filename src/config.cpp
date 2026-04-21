@@ -41,6 +41,7 @@ static void parse_toml(const std::string& path, Config& cfg) {
     }
 
     std::string line;
+    std::string current_section;
     while (std::getline(file, line)) {
         // Strip comments
         size_t comment_pos = line.find('#');
@@ -51,8 +52,9 @@ static void parse_toml(const std::string& path, Config& cfg) {
         line = trim(line);
         if (line.empty()) continue;
 
-        // Handle sections (parse but ignore in Phase 1)
+        // Handle sections
         if (line[0] == '[' && line.back() == ']') {
+            current_section = trim(line.substr(1, line.size() - 2));
             continue;
         }
 
@@ -65,7 +67,20 @@ static void parse_toml(const std::string& path, Config& cfg) {
         std::string key = trim(line.substr(0, eq_pos));
         std::string value = trim(line.substr(eq_pos + 1));
 
-        // Parse value based on key
+        // Parse [permissions] section
+        if (current_section == "permissions") {
+            std::string val_lower = value;
+            std::transform(val_lower.begin(), val_lower.end(),
+                           val_lower.begin(), [](unsigned char c) { return std::tolower(c); });
+            bool bool_val = (val_lower == "true");
+            if      (key == "read")   cfg.permissions.auto_approve_read   = bool_val;
+            else if (key == "write")  cfg.permissions.auto_approve_write  = bool_val;
+            else if (key == "delete") cfg.permissions.auto_approve_delete = bool_val;
+            else if (key == "shell")  cfg.permissions.auto_approve_shell  = bool_val;
+            continue;
+        }
+
+        // Parse top-level keys
         if (key == "endpoint") {
             cfg.endpoint = parse_string_value(value);
         } else if (key == "api_key") {

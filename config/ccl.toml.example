@@ -3,4 +3,9 @@ api_key     = ""
 model       = "qwen3-235b"
 timeout_sec = 30
 token_limit = 8000
-streaming   = true
+
+[permissions]                                                                                                                                                                                                                                                            
+read   = true    # auto-approve: read_file, list_dir, search_files, file_info                                                                                                                                                                                            
+write  = true    # auto-approve: write_file, edit_file, create_dir                                                                                                                                                                                                       
+delete = false   # auto-approve: delete_file                                                                                                                                                                                                                             
+shell  = false   # auto-approve: run_shell
