@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fnmatch.h>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -82,6 +83,17 @@ static std::optional<std::string> arg_path(const ToolArgs& args, const std::stri
     return expand_tilde(*p);
 }
 
+// Extract an optional integer argument from string or number type.
+static std::optional<int> arg_int(const ToolArgs& args, const std::string& key) {
+    auto it = args.find(key);
+    if (it == args.end()) return std::nullopt;
+    if (it->second.is_number()) return static_cast<int>(it->second.as_number());
+    if (it->second.is_string()) {
+        try { return std::stoi(it->second.as_string()); } catch (...) {}
+    }
+    return std::nullopt;
+}
+
 // ============================================================================
 // Tool implementations
 // ============================================================================
@@ -141,16 +153,36 @@ ToolResult tool_search_files(const ToolArgs& args) {
     try {
         if (!fs::exists(*path)) return ToolResult::fail("Path not found: " + *path);
 
+        // Compile regex once before iterating files
+        std::regex re;
+        if (!pattern_str.empty()) {
+            try {
+                re = std::regex(pattern_str);
+            } catch (const std::regex_error& e) {
+                return ToolResult::fail(std::string("invalid pattern: ") + e.what());
+            }
+        }
+
         std::ostringstream ss;
         bool found_any = false;
 
+        // Common non-project directories to skip (in addition to hidden dirs)
+        static const std::set<std::string> skip_dirs = {
+            "venv", "env", ".venv", "node_modules", "__pycache__",
+            "dist", "build", ".tox", ".eggs", "site-packages"
+        };
+
         // Use explicit iterator so we can skip hidden directories (.git, etc.)
+        bool truncated = false;
         for (auto it = fs::recursive_directory_iterator(*path);
              it != fs::recursive_directory_iterator(); ++it) {
-            // Skip hidden directories (including .git)
-            if (it->is_directory() && it->path().filename().string()[0] == '.') {
-                it.disable_recursion_pending();
-                continue;
+            // Skip hidden directories and common non-project dirs
+            if (it->is_directory()) {
+                const std::string& dname = it->path().filename().string();
+                if (!dname.empty() && (dname[0] == '.' || skip_dirs.count(dname))) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
             }
             if (!it->is_regular_file()) continue;
 
@@ -167,7 +199,6 @@ ToolResult tool_search_files(const ToolArgs& args) {
                 found_any = true;
             } else {
                 // Pattern present: search file contents
-                std::regex re(pattern_str);
                 std::ifstream file(it->path());
                 if (!file) continue;
 
@@ -175,6 +206,7 @@ ToolResult tool_search_files(const ToolArgs& args) {
                 int line_no = 0;
                 while (std::getline(file, line)) {
                     ++line_no;
+                    if (line.size() > 2048) continue;  // prevent catastrophic backtracking
                     if (std::regex_search(line, re)) {
                         if (found_any) ss << "\n";
                         ss << it->path().string() << ":" << line_no << ": " << line;
@@ -182,6 +214,16 @@ ToolResult tool_search_files(const ToolArgs& args) {
                     }
                 }
             }
+
+            // Cap output at 8000 bytes to keep context manageable
+            if (ss.tellp() > 8000) {
+                truncated = true;
+                break;
+            }
+        }
+
+        if (truncated) {
+            ss << "\n[... results truncated — use file_glob or a narrower path to refine]";
         }
 
         return ToolResult::ok(ss.str());
@@ -377,10 +419,8 @@ ToolResult tool_run_shell(const ToolArgs& args) {
 
     // Get optional timeout (default 30 seconds)
     int timeout_sec = 30;
-    auto timeout_val = args.find("timeout_sec");
-    if (timeout_val != args.end() && timeout_val->second.is_number()) {
-        timeout_sec = static_cast<int>(timeout_val->second.as_number());
-    }
+    auto timeout_opt = arg_int(args, "timeout_sec");
+    if (timeout_opt) timeout_sec = *timeout_opt;
 
     // Create pipe for stdout/stderr
     int pipefd[2];
@@ -429,6 +469,13 @@ ToolResult tool_run_shell(const ToolArgs& args) {
             timed_out = true;
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
+            // Drain remaining buffered output before closing the pipe
+            {
+                ssize_t bytes;
+                while ((bytes = read(pipefd[0], buf.data(), buf.size())) > 0) {
+                    output.write(buf.data(), bytes);
+                }
+            }
             break;
         }
 
@@ -465,7 +512,12 @@ ToolResult tool_run_shell(const ToolArgs& args) {
     close(pipefd[0]);
 
     if (timed_out) {
-        return ToolResult::fail("timeout after " + std::to_string(timeout_sec) + " seconds");
+        std::string captured = output.str();
+        std::string msg = "timeout after " + std::to_string(timeout_sec) + " seconds";
+        if (!captured.empty()) {
+            msg += "\n[output before timeout]\n" + captured;
+        }
+        return ToolResult::fail(msg);
     }
 
     if (!exited) {
