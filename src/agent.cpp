@@ -139,17 +139,19 @@ void Agent::loop() {
                 tool_records.push_back(rec);
             }
 
-            context_.push_assistant(response.content, tool_records);
-
-            // If there are tool calls, execute them
-            if (!response.tool_calls.empty()) {
+            if (!tool_records.empty()) {
+                // Assistant called tools — push message and execute them
+                context_.push_assistant(response.content, tool_records);
                 handle_tool_calls(response.tool_calls);
-                // Loop back to call LLM again
                 continue;
+            } else if (!response.content.empty()) {
+                // Normal text response — push and show
+                context_.push_assistant(response.content, {});
+                ui_.show_message("agent", response.content);
+            } else {
+                // Empty content, no tool calls — don't pollute context
+                ui_.show_error("[warning] empty response from model");
             }
-
-            // No tool calls — show response
-            ui_.show_message("agent", response.content);
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
         }

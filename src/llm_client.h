@@ -22,6 +22,7 @@ public:
                                            const Config& cfg);
     static LlmResponse  parse_response_json(const std::string& body);
     static bool         is_retryable_status(int http_status);
+    static std::vector<ToolCall> parse_hermes_tool_calls(const std::string& text);
 
 private:
     Config  config_;

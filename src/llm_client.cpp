@@ -1,6 +1,7 @@
 #include "llm_client.h"
 #include "context.h"
 #include "json.h"
+#include <iostream>
 #include <sstream>
 #include <chrono>
 #include <thread>
@@ -40,7 +41,8 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
        << "\"model\":" << "\"" << escape_json(cfg.model) << "\""
        << ",\"messages\":" << ctx.to_json()
        << ",\"max_tokens\":" << cfg.max_tokens
-       << ",\"temperature\":" << cfg.temperature;
+       << ",\"temperature\":" << cfg.temperature
+       << ",\"enable_thinking\":" << (cfg.enable_thinking ? "true" : "false");
 
     // Tools array
     if (!tools.empty()) {
@@ -148,6 +150,13 @@ LlmResponse LlmClient::parse_response_json(const std::string& body) {
                     }
                 }
 
+                // Fallback: Hermes-format tool calls in reasoning_content
+                if (response.tool_calls.empty()) {
+                    auto reasoning_opt = msg_opt->get("reasoning_content");
+                    if (reasoning_opt.has_value() && reasoning_opt->is_string()) {
+                        response.tool_calls = parse_hermes_tool_calls(reasoning_opt->as_string());
+                    }
+                }
             }
         }
 
@@ -167,11 +176,86 @@ LlmResponse LlmClient::parse_response_json(const std::string& body) {
                 response.usage.total_tokens = static_cast<size_t>(total_tokens_opt->as_number());
             }
         }
+    } catch (const std::exception& e) {
+        response.is_error = true;
+        response.content  = std::string("Response parse failed: ") + e.what();
+        return response;
     } catch (...) {
-        // On parse error, return empty response
+        response.is_error = true;
+        response.content  = "Response parse failed: unknown error";
+        return response;
     }
 
     return response;
+}
+
+// ============================================================================
+// Hermes tool call parsing
+// ============================================================================
+
+std::vector<ToolCall> LlmClient::parse_hermes_tool_calls(const std::string& text) {
+    std::vector<ToolCall> result;
+    int call_index = 0;
+
+    size_t pos = 0;
+    const std::string TC_OPEN  = "<tool_call>";
+    const std::string TC_CLOSE = "</tool_call>";
+    const std::string FN_OPEN  = "<function=";
+    const std::string PARAM_OPEN  = "<parameter=";
+    const std::string PARAM_CLOSE = "</parameter>";
+
+    while (true) {
+        size_t tc_start = text.find(TC_OPEN, pos);
+        if (tc_start == std::string::npos) break;
+        size_t tc_end = text.find(TC_CLOSE, tc_start);
+        if (tc_end == std::string::npos) break;
+
+        std::string block = text.substr(tc_start + TC_OPEN.size(),
+                                        tc_end - tc_start - TC_OPEN.size());
+
+        // Extract function name
+        size_t fn_pos = block.find(FN_OPEN);
+        if (fn_pos == std::string::npos) { pos = tc_end + TC_CLOSE.size(); continue; }
+        size_t fn_name_start = fn_pos + FN_OPEN.size();
+        size_t fn_name_end   = block.find('>', fn_name_start);
+        if (fn_name_end == std::string::npos) { pos = tc_end + TC_CLOSE.size(); continue; }
+        std::string fn_name = block.substr(fn_name_start, fn_name_end - fn_name_start);
+
+        ToolCall call;
+        call.id   = "hermes_" + std::to_string(call_index++);
+        call.name = fn_name;
+
+        // Extract parameters
+        size_t p_pos = 0;
+        while (true) {
+            size_t param_start = block.find(PARAM_OPEN, p_pos);
+            if (param_start == std::string::npos) break;
+            size_t key_start = param_start + PARAM_OPEN.size();
+            size_t key_end   = block.find('>', key_start);
+            if (key_end == std::string::npos) break;
+            std::string key = block.substr(key_start, key_end - key_start);
+
+            size_t val_start = key_end + 1;
+            size_t val_end   = block.find(PARAM_CLOSE, val_start);
+            if (val_end == std::string::npos) break;
+            std::string val = block.substr(val_start, val_end - val_start);
+
+            // Trim leading/trailing whitespace and newlines
+            size_t vs = val.find_first_not_of(" \t\r\n");
+            size_t ve = val.find_last_not_of(" \t\r\n");
+            if (vs != std::string::npos) val = val.substr(vs, ve - vs + 1);
+            else val = "";
+
+            JsonValue jval; jval.data = val;
+            call.args[key] = jval;
+            p_pos = val_end + PARAM_CLOSE.size();
+        }
+
+        result.push_back(call);
+        pos = tc_end + TC_CLOSE.size();
+    }
+
+    return result;
 }
 
 // ============================================================================
@@ -238,6 +322,11 @@ LlmResponse LlmClient::complete(const ContextManager& context,
                                 const std::vector<ToolDef>& tools) {
     std::string request_body = build_request_json(context, tools, config_);
     HttpResult http_result = send_with_retry(request_body);
+
+    if (config_.debug) {
+        std::cerr << "[debug] HTTP " << http_result.status << " response:\n"
+                  << http_result.body << "\n";
+    }
 
     if (http_result.status != 200) {
         LlmResponse response;

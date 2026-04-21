@@ -19,6 +19,7 @@ static void print_help() {
               << "  --model <name>       LLM model (overrides config)\n"
               << "  --endpoint <url>     API endpoint (overrides config)\n"
               << "  --mode explore|plan|act  Start in specified mode\n"
+              << "  --debug              Log raw LLM responses to stderr\n"
               << "  --help, -h           Show this help\n";
 }
 
@@ -26,6 +27,7 @@ int main(int argc, char* argv[]) {
     std::string config_path;
     std::string cli_model;
     std::string cli_endpoint;
+    bool cli_debug = false;
     AgentMode initial_mode = AgentMode::Plan;
 
     // Parse command-line arguments
@@ -43,6 +45,8 @@ int main(int argc, char* argv[]) {
                 initial_mode = AgentMode::Act;
             }
             // Plan is already the default
+        } else if (arg == "--debug") {
+            cli_debug = true;
         } else if (arg == "--help" || arg == "-h") {
             print_help();
             return 0;
@@ -59,6 +63,9 @@ int main(int argc, char* argv[]) {
     }
     if (!cli_endpoint.empty()) {
         loaded_config.endpoint = cli_endpoint;
+    }
+    if (cli_debug) {
+        loaded_config.debug = true;
     }
     // Register signal handlers
     std::signal(SIGINT, signal_handler);

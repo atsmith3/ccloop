@@ -154,6 +154,12 @@ TEST(llm_parse_malformed_response) {
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(0));
 }
 
+TEST(llm_parse_malformed_json_sets_is_error) {
+    LlmResponse r = LlmClient::parse_response_json("not valid json {{{{");
+    CHECK(r.is_error);
+    CHECK(!r.content.empty());  // error message present
+}
+
 TEST(llm_parse_response_is_error_false_for_success) {
     std::string response = R"({
         "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
@@ -190,5 +196,48 @@ TEST(llm_non_retryable_error_400) {
 
 TEST(llm_non_retryable_error_401) {
     CHECK(!LlmClient::is_retryable_status(401));
+}
+
+TEST(llm_parse_hermes_single_tool_call) {
+    std::string body = R"({
+        "choices":[{"finish_reason":"stop","message":{
+            "content":"","role":"assistant",
+            "reasoning_content":"Thinking...\n<tool_call>\n<function=read_file>\n<parameter=path>\n/tmp/x.txt\n</parameter>\n</function>\n</tool_call>"
+        }}],
+        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+    })";
+    LlmResponse r = LlmClient::parse_response_json(body);
+    CHECK_EQ(r.tool_calls.size(), size_t(1));
+    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
+    CHECK(r.tool_calls[0].args.count("path") > 0);
+    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/tmp/x.txt"));
+    CHECK(!r.tool_calls[0].id.empty());
+}
+
+TEST(llm_parse_hermes_multiple_tool_calls) {
+    std::string body = R"({
+        "choices":[{"finish_reason":"stop","message":{
+            "content":"","role":"assistant",
+            "reasoning_content":"<tool_call>\n<function=read_file>\n<parameter=path>\n/tmp/a.txt\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=list_dir>\n<parameter=path>\n/tmp\n</parameter>\n</function>\n</tool_call>"
+        }}],
+        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+    })";
+    LlmResponse r = LlmClient::parse_response_json(body);
+    CHECK_EQ(r.tool_calls.size(), size_t(2));
+    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
+    CHECK_EQ(r.tool_calls[1].name, std::string("list_dir"));
+    CHECK(r.tool_calls[0].id != r.tool_calls[1].id);
+}
+
+TEST(llm_parse_hermes_no_reasoning_content) {
+    std::string body = R"({
+        "choices":[{"finish_reason":"stop","message":{
+            "content":"just text","role":"assistant"
+        }}],
+        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+    })";
+    LlmResponse r = LlmClient::parse_response_json(body);
+    CHECK_EQ(r.tool_calls.size(), size_t(0));
+    CHECK_EQ(r.content, std::string("just text"));
 }
 
