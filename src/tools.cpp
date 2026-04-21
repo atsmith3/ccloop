@@ -578,5 +578,18 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
         }
     }
 
+    // run_shell is available in all modes (read-only exploration, build checks, etc.)
+    if (mode == AgentMode::Plan) {
+        Tool tool;
+        tool.def.name = "run_shell";
+        tool.def.description = "Execute a shell command (requires approval)";
+        tool.def.params.push_back({"command", "string", "Shell command to execute", true});
+        tool.def.params.push_back({"cwd", "string", "Working directory (optional)", false});
+        tool.def.params.push_back({"timeout_sec", "integer", "Timeout in seconds (optional, default 30)", false});
+        tool.fn = tool_run_shell;
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
     return registry;
 }
