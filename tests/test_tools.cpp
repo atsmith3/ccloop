@@ -144,6 +144,23 @@ TEST(tool_search_files_no_match) {
     CHECK_EQ(result.content, std::string(""));
 }
 
+TEST(tool_search_files_no_pattern_lists_files) {
+    TmpDir tmp;
+    { std::ofstream f(tmp.path + "/readme.txt"); f << "hello\n"; }
+    { std::ofstream f(tmp.path + "/main.cpp");  f << "hello\n"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue();
+    args["path"].data.emplace<std::string>(tmp.path);
+    args["file_glob"] = JsonValue();
+    args["file_glob"].data.emplace<std::string>("*.txt");
+
+    ToolResult result = tool_search_files(args);
+    CHECK(result.success);
+    CHECK(result.content.find("readme.txt") != std::string::npos);
+    CHECK(result.content.find("main.cpp") == std::string::npos);
+}
+
 TEST(tool_registry_find_existing) {
     Config cfg = Config::defaults();
     ToolRegistry registry = make_registry(AgentMode::Plan, cfg);

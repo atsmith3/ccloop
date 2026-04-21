@@ -122,8 +122,14 @@ ToolResult tool_list_dir(const ToolArgs& args) {
 
 ToolResult tool_search_files(const ToolArgs& args) {
     std::string err;
-    auto path    = arg_path(args, "path",    err); if (!path)    return ToolResult::fail(err);
-    auto pattern = arg_str (args, "pattern", err); if (!pattern) return ToolResult::fail(err);
+    auto path = arg_path(args, "path", err); if (!path) return ToolResult::fail(err);
+
+    // Optional content-search pattern
+    std::string pattern_str;
+    auto pat_val = args.find("pattern");
+    if (pat_val != args.end() && pat_val->second.is_string()) {
+        pattern_str = pat_val->second.as_string();
+    }
 
     // Optional glob filter (e.g., "*.cpp", "*.h")
     std::string file_glob;
@@ -135,7 +141,6 @@ ToolResult tool_search_files(const ToolArgs& args) {
     try {
         if (!fs::exists(*path)) return ToolResult::fail("Path not found: " + *path);
 
-        std::regex re(*pattern);
         std::ostringstream ss;
         bool found_any = false;
 
@@ -155,17 +160,26 @@ ToolResult tool_search_files(const ToolArgs& args) {
                 if (fnmatch(file_glob.c_str(), fname.c_str(), 0) != 0) continue;
             }
 
-            std::ifstream file(it->path());
-            if (!file) continue;
+            if (pattern_str.empty()) {
+                // No pattern: list file paths only
+                if (found_any) ss << "\n";
+                ss << it->path().string();
+                found_any = true;
+            } else {
+                // Pattern present: search file contents
+                std::regex re(pattern_str);
+                std::ifstream file(it->path());
+                if (!file) continue;
 
-            std::string line;
-            int line_no = 0;
-            while (std::getline(file, line)) {
-                ++line_no;
-                if (std::regex_search(line, re)) {
-                    if (found_any) ss << "\n";
-                    ss << it->path().string() << ":" << line_no << ": " << line;
-                    found_any = true;
+                std::string line;
+                int line_no = 0;
+                while (std::getline(file, line)) {
+                    ++line_no;
+                    if (std::regex_search(line, re)) {
+                        if (found_any) ss << "\n";
+                        ss << it->path().string() << ":" << line_no << ": " << line;
+                        found_any = true;
+                    }
                 }
             }
         }
@@ -501,10 +515,10 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
     {
         Tool tool;
         tool.def.name = "search_files";
-        tool.def.description = "Search files for a regex pattern (skips hidden directories like .git)";
+        tool.def.description = "List files or search file contents by regex (skips hidden dirs like .git). Omit 'pattern' to list matching files only.";
         tool.def.params.push_back({"path", "string", "Root path to search", true});
-        tool.def.params.push_back({"pattern", "string", "Regex pattern to match", true});
-        tool.def.params.push_back({"file_glob", "string", "Optional glob filter, e.g. '*.cpp'", false});
+        tool.def.params.push_back({"pattern", "string", "Regex to search file contents (optional — omit to list files)", false});
+        tool.def.params.push_back({"file_glob", "string", "Optional glob filter, e.g. '*.py'", false});
         tool.fn = tool_search_files;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
