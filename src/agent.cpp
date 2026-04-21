@@ -1,6 +1,7 @@
 #include "agent.h"
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 #include <atomic>
 #include <set>
 
@@ -61,9 +62,7 @@ std::string Agent::system_prompt() const {
                 "It will become the plan filename.\n"
                 "4. Call out risks, dependencies, or prerequisites\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
-                "that you have not confirmed exist. Do not write or modify any files.\n"
-                "When your plan is complete, tell the user: "
-                "\"Plan ready — type /mode act to begin execution.\""
+                "that you have not confirmed exist. Do not write or modify any files."
                 + tools_section;
         case AgentMode::Act:
             return
@@ -142,6 +141,14 @@ void Agent::loop() {
 
             context_.sync_token_count(response.usage);
 
+            // Drop tool calls for unrecognized tool names (e.g. bare <path> tags)
+            {
+                auto& tc = response.tool_calls;
+                tc.erase(std::remove_if(tc.begin(), tc.end(),
+                    [&](const ToolCall& c) { return !registry_.find(c.name).has_value(); }),
+                    tc.end());
+            }
+
             if (!response.tool_calls.empty()) {
                 // Assistant called tools — push message and execute them
                 context_.push_assistant(response.content);
@@ -167,35 +174,37 @@ bool Agent::requires_approval(const std::string& tool_name) const {
 }
 
 void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
+    std::string combined;
+
     for (const auto& call : calls) {
         ui_.show_tool_call(call, ToolSource::Local);
 
-        // Check approval gate
-        if (requires_approval(call.name)) {
-            Approval approval = ui_.request_approval(call);
-            if (approval != Approval::Accept) {
-                ToolResult rejected = ToolResult::fail("rejected by user");
-                ui_.show_tool_result(call, rejected);
-                context_.push_tool_result(call.id, rejected);
-                continue;
+        ToolResult result = [&]() -> ToolResult {
+            // Check approval gate
+            if (requires_approval(call.name)) {
+                Approval approval = ui_.request_approval(call);
+                if (approval != Approval::Accept) {
+                    return ToolResult::fail("rejected by user");
+                }
             }
-        }
 
-        // Find and execute tool
-        auto tool_opt = registry_.find(call.name);
-        if (!tool_opt.has_value()) {
-            ToolResult result = ToolResult::fail("Tool not found: " + call.name);
-            ui_.show_tool_result(call, result);
-            context_.push_tool_result(call.name, result);
-            continue;
-        }
+            // Find and execute tool
+            auto tool_opt = registry_.find(call.name);
+            if (!tool_opt.has_value()) {
+                return ToolResult::fail("Tool not found: " + call.name);
+            }
+            return tool_opt.value()->fn(call.args);
+        }();
 
-        const Tool* tool = tool_opt.value();
-
-        // Execute tool
-        ToolResult result = tool->fn(call.args);
         ui_.show_tool_result(call, result);
-        context_.push_tool_result(call.name, result);
+
+        // Accumulate results into a single message
+        if (!combined.empty()) combined += "\n\n";
+        combined += "[Tool: " + call.name + "]\n" + result.to_context_string();
+    }
+
+    if (!combined.empty()) {
+        context_.push_user(combined);
     }
 }
 

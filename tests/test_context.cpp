@@ -23,28 +23,6 @@ TEST(context_push_assistant_serializes) {
     CHECK(ctx.total_tokens() > 0);
 }
 
-TEST(context_push_tool_result_serializes) {
-    ContextManager ctx(8000);
-    ToolResult result = ToolResult::ok("file contents here");
-    ctx.push_tool_result("read_file", result);
-    CHECK_EQ(ctx.message_count(), size_t(1));
-}
-
-TEST(context_tool_result_emitted_as_user_message) {
-    ContextManager ctx(8000);
-    ToolResult result = ToolResult::ok("output here");
-    ctx.push_tool_result("list_dir", result);
-
-    std::string json = ctx.to_json();
-    JsonValue parsed = parse_json(json);
-    auto role = parsed.as_array()[0]->get("role");
-    CHECK_EQ(role->as_string(), std::string("user"));
-
-    auto content = parsed.as_array()[0]->get("content");
-    CHECK(content->as_string().find("[Tool: list_dir]") != std::string::npos);
-    CHECK(content->as_string().find("output here") != std::string::npos);
-}
-
 TEST(context_to_json_message_order) {
     ContextManager ctx(8000);
     ctx.push_system("system");

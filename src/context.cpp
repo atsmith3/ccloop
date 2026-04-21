@@ -50,14 +50,6 @@ void ContextManager::push_assistant(std::string content) {
     total_tokens_ += msg.estimated_tokens;
 }
 
-void ContextManager::push_tool_result(const std::string& tool_name, const ToolResult& result) {
-    Message msg;
-    msg.role = Message::Role::User;
-    msg.content = "[Tool: " + tool_name + "]\n" + result.to_context_string();
-    msg.estimated_tokens = estimate_tokens(msg.content);
-    messages_.push_back(msg);
-    total_tokens_ += msg.estimated_tokens;
-}
 
 void ContextManager::sync_token_count(const LlmResponse::Usage& usage) {
     if (usage.total_tokens > 0) {

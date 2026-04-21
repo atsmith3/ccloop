@@ -12,7 +12,6 @@ public:
     void replace_system(std::string content);  // Update system message, keep conversation
     void push_user(std::string content);
     void push_assistant(std::string content);
-    void push_tool_result(const std::string& tool_name, const ToolResult& result);
 
     void sync_token_count(const LlmResponse::Usage& usage);
 
