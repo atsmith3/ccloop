@@ -166,8 +166,8 @@ TEST(tool_registry_definitions_count) {
     ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
     auto defs = registry.definitions();
-    // Should have 4 read-only tools
-    CHECK_EQ(defs.size(), size_t(4));
+    // 4 read-only tools + run_shell
+    CHECK_EQ(defs.size(), size_t(5));
 }
 
 TEST(tool_result_ok_fields) {

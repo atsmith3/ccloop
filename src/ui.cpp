@@ -14,23 +14,13 @@ static std::string truncate(const std::string& s, size_t max_len) {
 }
 
 void Ui::show_tool_call(const ToolCall& call, ToolSource source) {
-    if (call.name == "run_shell") {
-        auto it = call.args.find("command");
-        std::string cmd = (it != call.args.end()) ? it->second.as_string() : "";
-        std::cout << "[call] run_shell"
-                  << " (" << (source == ToolSource::Local ? "local" : "mcp") << ")\n"
-                  << "  $ " << cmd << "\n";
-        std::cout.flush();
-        return;
-    }
-
     std::cout << "[call] " << call.name;
 
     size_t arg_count = 0;
     for (const auto& [key, val] : call.args) {
         if (arg_count >= 3) { std::cout << " ..."; break; }
         std::string val_str = val.is_string() ? val.as_string() : to_json(val);
-        std::cout << " " << key << "=" << truncate(val_str, 40);
+        std::cout << " " << key << "=" << (key == "command" ? val_str : truncate(val_str, 40));
         ++arg_count;
     }
 
@@ -68,32 +58,36 @@ void Ui::show_error(std::string_view msg) {
 }
 
 Approval Ui::request_approval(const ToolCall& call) {
-    if (call.name == "run_shell") {
-        auto it = call.args.find("command");
-        std::string cmd = (it != call.args.end()) ? it->second.as_string() : "";
-        std::cout << "Approve run_shell?\n"
-                  << "  $ " << cmd << "\n"
-                  << "[y/n]: ";
-        std::cout.flush();
-    } else {
-        std::cout << "Approve " << call.name;
-        size_t arg_count = 0;
-        for (const auto& [key, val] : call.args) {
-            if (arg_count++ >= 3) { std::cout << " ..."; break; }
-            std::string val_str = val.is_string() ? val.as_string() : to_json(val);
-            std::cout << " " << key << "=" << truncate(val_str, 60);
-        }
-        std::cout << "? [y/n]: ";
-        std::cout.flush();
+    std::cout << "Approve " << call.name;
+    size_t arg_count = 0;
+    for (const auto& [key, val] : call.args) {
+        if (arg_count++ >= 3) { std::cout << " ..."; break; }
+        std::string val_str = val.is_string() ? val.as_string() : to_json(val);
+        std::cout << " " << key << "=" << (key == "command" ? val_str : truncate(val_str, 60));
     }
+    std::cout << "? [y/n]: ";
+    std::cout.flush();
 
-    std::string line;
-    if (std::getline(std::cin, line)) {
-        if (!line.empty() && (line[0] == 'y' || line[0] == 'Y')) {
-            return Approval::Accept;
+    while (true) {
+        std::string line;
+        if (!std::getline(std::cin, line)) {
+            std::cout << "\n";
+            return Approval::Reject;  // EOF
         }
+        // Trim \r (Windows-style line endings)
+        while (!line.empty() && line.back() == '\r') line.pop_back();
+
+        if (line.empty()) {
+            std::cout << "[y/n]: ";
+            std::cout.flush();
+            continue;
+        }
+        if (line[0] == 'y' || line[0] == 'Y') return Approval::Accept;
+        if (line[0] == 'n' || line[0] == 'N') return Approval::Reject;
+
+        std::cout << "[y/n]: ";
+        std::cout.flush();
     }
-    return Approval::Reject;
 }
 
 std::string Ui::wait_for_input() {
