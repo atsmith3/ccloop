@@ -29,10 +29,14 @@ Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode), context_(config.token_limit), llm_(config),
       registry_(make_registry(initial_mode, config)), ui_(ui) {}
 
-void Agent::run() {
+void Agent::run(const std::string& initial_prompt) {
     context_.push_system(system_prompt());
     ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+    if (!initial_prompt.empty()) {
+        pending_execution_ = initial_prompt;
+        non_interactive_ = true;
+    }
     loop();
 }
 
@@ -165,6 +169,15 @@ void Agent::loop() {
             }
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
+        }
+
+        if (non_interactive_) {
+            if (mode_ == AgentMode::Plan) {
+                // Plan turn complete — auto-transition to act and execute
+                transition_to(AgentMode::Act);
+                continue;  // pending_execution_ is now set by transition_to()
+            }
+            return;  // Act turn complete — exit
         }
     }
 }

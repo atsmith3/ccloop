@@ -12,7 +12,7 @@ extern std::atomic<bool> should_exit;
 class Agent {
 public:
     Agent(Config config, Ui& ui, AgentMode initial_mode = AgentMode::Plan);
-    void run();
+    void run(const std::string& initial_prompt = "");
 
 private:
     Config         config_;
@@ -22,6 +22,7 @@ private:
     ToolRegistry   registry_;
     Ui&            ui_;
     std::string    pending_execution_;
+    bool           non_interactive_ = false;
 
     void loop();
     void handle_tool_calls(const std::vector<ToolCall>& calls);
