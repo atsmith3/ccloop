@@ -41,7 +41,6 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
        << ",\"messages\":" << ctx.to_json()
        << ",\"max_tokens\":" << cfg.max_tokens
        << ",\"temperature\":" << cfg.temperature
-       << ",\"enable_thinking\":" << (cfg.enable_thinking ? "true" : "false")
        << "}";
     return ss.str();
 }
