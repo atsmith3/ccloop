@@ -11,9 +11,8 @@ public:
     void push_system(std::string content);
     void replace_system(std::string content);  // Update system message, keep conversation
     void push_user(std::string content);
-    void push_assistant(std::string content,
-                        std::vector<ToolCallRecord> tool_calls = {});
-    void push_tool_result(std::string call_id, const ToolResult& result);
+    void push_assistant(std::string content);
+    void push_tool_result(const std::string& tool_name, const ToolResult& result);
 
     void sync_token_count(const LlmResponse::Usage& usage);
 

@@ -41,22 +41,19 @@ void ContextManager::push_user(std::string content) {
     total_tokens_ += msg.estimated_tokens;
 }
 
-void ContextManager::push_assistant(std::string content,
-                                    std::vector<ToolCallRecord> tool_calls) {
+void ContextManager::push_assistant(std::string content) {
     Message msg;
     msg.role = Message::Role::Assistant;
     msg.content = std::move(content);
-    msg.tool_calls = std::move(tool_calls);
     msg.estimated_tokens = estimate_tokens(msg.content);
     messages_.push_back(msg);
     total_tokens_ += msg.estimated_tokens;
 }
 
-void ContextManager::push_tool_result(std::string call_id, const ToolResult& result) {
+void ContextManager::push_tool_result(const std::string& tool_name, const ToolResult& result) {
     Message msg;
-    msg.role = Message::Role::Tool;
-    msg.tool_call_id = std::move(call_id);
-    msg.content = result.to_context_string();
+    msg.role = Message::Role::User;
+    msg.content = "[Tool: " + tool_name + "]\n" + result.to_context_string();
     msg.estimated_tokens = estimate_tokens(msg.content);
     messages_.push_back(msg);
     total_tokens_ += msg.estimated_tokens;
@@ -86,24 +83,10 @@ size_t ContextManager::index_of_first_non_system() const {
 }
 
 size_t ContextManager::find_safe_drop_end(size_t start) const {
-    // Find a safe boundary starting from index `start`
-    // Safe boundary: after a non-tool message that follows a non-assistant message
-    // Never leave an assistant message without its tool results
-
     if (start >= messages_.size()) return messages_.size();
 
     for (size_t i = start; i < messages_.size(); ++i) {
-        // Skip if this is an assistant message (need to keep with subsequent tools)
-        if (messages_[i].role == Message::Role::Assistant) {
-            // Skip to after all tool results following this assistant
-            ++i;
-            while (i < messages_.size() && messages_[i].role == Message::Role::Tool) {
-                ++i;
-            }
-            // Now i points to first non-tool after assistant; this is safe to drop before
-            return i;
-        }
-        // If it's User, Tool, or System, safe to drop after
+        // Any non-assistant message is a safe drop boundary
         if (messages_[i].role != Message::Role::Assistant) {
             return i + 1;
         }
@@ -151,36 +134,8 @@ std::string ContextManager::to_json() const {
             case Message::Role::Assistant:
                 ss << "\"assistant\"";
                 break;
-            case Message::Role::Tool:
-                ss << "\"tool\"";
-                break;
         }
-        // Assistant messages with tool calls and no text use null content (OpenAI spec)
-        if (msg.role == Message::Role::Assistant && !msg.tool_calls.empty() && msg.content.empty()) {
-            ss << ",\"content\":null";
-        } else {
-            ss << ",\"content\":\"" << escape_json(msg.content) << "\"";
-        }
-
-        // Tool call ID (for tool messages)
-        if (msg.role == Message::Role::Tool && !msg.tool_call_id.empty()) {
-            ss << ",\"tool_call_id\":\"" << escape_json(msg.tool_call_id) << "\"";
-        }
-
-        // Tool calls (for assistant messages)
-        if (msg.role == Message::Role::Assistant && !msg.tool_calls.empty()) {
-            ss << ",\"tool_calls\":[";
-            for (size_t j = 0; j < msg.tool_calls.size(); ++j) {
-                if (j > 0) ss << ",";
-                const auto& tc = msg.tool_calls[j];
-                ss << "{\"id\":\"" << escape_json(tc.id) << "\""
-                   << ",\"type\":\"function\",\"function\":{"
-                   << "\"name\":\"" << escape_json(tc.name) << "\""
-                   << ",\"arguments\":\"" << escape_json(tc.arguments_json) << "\""
-                   << "}}";
-            }
-            ss << "]";
-        }
+        ss << ",\"content\":\"" << escape_json(msg.content) << "\"";
 
         ss << "}";
     }

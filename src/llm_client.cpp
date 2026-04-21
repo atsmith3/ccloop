@@ -34,7 +34,6 @@ LlmClient::~LlmClient() {
 // ============================================================================
 
 std::string LlmClient::build_request_json(const ContextManager& ctx,
-                                          const std::vector<ToolDef>& tools,
                                           const Config& cfg) {
     std::ostringstream ss;
     ss << "{"
@@ -42,52 +41,8 @@ std::string LlmClient::build_request_json(const ContextManager& ctx,
        << ",\"messages\":" << ctx.to_json()
        << ",\"max_tokens\":" << cfg.max_tokens
        << ",\"temperature\":" << cfg.temperature
-       << ",\"enable_thinking\":" << (cfg.enable_thinking ? "true" : "false");
-
-    // Tools array
-    if (!tools.empty()) {
-        ss << ",\"tools\":[";
-        for (size_t i = 0; i < tools.size(); ++i) {
-            if (i > 0) ss << ",";
-            const auto& tool = tools[i];
-
-            ss << "{"
-               << "\"type\":\"function\","
-               << "\"function\":{"
-               << "\"name\":\"" << escape_json(tool.name) << "\""
-               << ",\"description\":\"" << escape_json(tool.description) << "\""
-               << ",\"parameters\":{"
-               << "\"type\":\"object\","
-               << "\"properties\":{";
-
-            for (size_t j = 0; j < tool.params.size(); ++j) {
-                if (j > 0) ss << ",";
-                const auto& param = tool.params[j];
-                ss << "\"" << escape_json(param.name) << "\":"
-                   << "{\"type\":\"" << escape_json(param.type) << "\""
-                   << ",\"description\":\"" << escape_json(param.description) << "\""
-                   << "}";
-            }
-
-            ss << "},"
-               << "\"required\":[";
-            bool first = true;
-            for (const auto& param : tool.params) {
-                if (param.required) {
-                    if (!first) ss << ",";
-                    ss << "\"" << escape_json(param.name) << "\"";
-                    first = false;
-                }
-            }
-            ss << "]"
-               << "}"
-               << "}"
-               << "}";
-        }
-        ss << "]";
-    }
-
-    ss << "}";
+       << ",\"enable_thinking\":" << (cfg.enable_thinking ? "true" : "false")
+       << "}";
     return ss.str();
 }
 
@@ -112,49 +67,7 @@ LlmResponse LlmClient::parse_response_json(const std::string& body) {
                     auto content_opt = msg_opt->get("content");
                     if (content_opt.has_value() && content_opt->is_string()) {
                         response.content = content_opt->as_string();
-                    }
-
-                    // Extract tool calls
-                    auto tool_calls_arr_opt = msg_opt->get("tool_calls");
-                    if (tool_calls_arr_opt.has_value() && tool_calls_arr_opt->is_array()) {
-                        const auto& tool_arr = tool_calls_arr_opt->as_array();
-                        for (const auto& tc_ptr : tool_arr) {
-                            auto id_opt = tc_ptr->get("id");
-                            auto function_opt = tc_ptr->get("function");
-                            if (id_opt.has_value() && function_opt.has_value()) {
-                                auto name_opt = function_opt->get("name");
-                                auto args_opt = function_opt->get("arguments");
-                                if (name_opt.has_value() && args_opt.has_value()) {
-                                    ToolCall call;
-                                    call.id = id_opt->as_string();
-                                    call.name = name_opt->as_string();
-
-                                    // Parse arguments JSON string
-                                    try {
-                                        if (args_opt->is_string()) {
-                                            JsonValue args_val = parse_json(args_opt->as_string());
-                                            if (args_val.is_object()) {
-                                                for (const auto& [key, val] : args_val.as_object()) {
-                                                    call.args[key] = *val;
-                                                }
-                                            }
-                                        }
-                                    } catch (...) {
-                                        // Ignore parse errors
-                                    }
-
-                                    response.tool_calls.push_back(call);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Fallback: Hermes-format tool calls in reasoning_content
-                if (response.tool_calls.empty()) {
-                    auto reasoning_opt = msg_opt->get("reasoning_content");
-                    if (reasoning_opt.has_value() && reasoning_opt->is_string()) {
-                        response.tool_calls = parse_hermes_tool_calls(reasoning_opt->as_string());
+                        response.tool_calls = parse_xml_tool_calls(response.content);
                     }
                 }
             }
@@ -190,69 +103,87 @@ LlmResponse LlmClient::parse_response_json(const std::string& body) {
 }
 
 // ============================================================================
-// Hermes tool call parsing
+// XML tool call parsing
 // ============================================================================
 
-std::vector<ToolCall> LlmClient::parse_hermes_tool_calls(const std::string& text) {
+std::vector<ToolCall> LlmClient::parse_xml_tool_calls(const std::string& content) {
     std::vector<ToolCall> result;
     int call_index = 0;
-
     size_t pos = 0;
-    const std::string TC_OPEN  = "<tool_call>";
-    const std::string TC_CLOSE = "</tool_call>";
-    const std::string FN_OPEN  = "<function=";
-    const std::string PARAM_OPEN  = "<parameter=";
-    const std::string PARAM_CLOSE = "</parameter>";
 
-    while (true) {
-        size_t tc_start = text.find(TC_OPEN, pos);
-        if (tc_start == std::string::npos) break;
-        size_t tc_end = text.find(TC_CLOSE, tc_start);
-        if (tc_end == std::string::npos) break;
+    while (pos < content.size()) {
+        // Find next opening tag (not a closing tag)
+        size_t tag_open = content.find('<', pos);
+        if (tag_open == std::string::npos) break;
 
-        std::string block = text.substr(tc_start + TC_OPEN.size(),
-                                        tc_end - tc_start - TC_OPEN.size());
+        // Skip closing tags
+        if (tag_open + 1 < content.size() && content[tag_open + 1] == '/') {
+            pos = tag_open + 1;
+            continue;
+        }
 
-        // Extract function name
-        size_t fn_pos = block.find(FN_OPEN);
-        if (fn_pos == std::string::npos) { pos = tc_end + TC_CLOSE.size(); continue; }
-        size_t fn_name_start = fn_pos + FN_OPEN.size();
-        size_t fn_name_end   = block.find('>', fn_name_start);
-        if (fn_name_end == std::string::npos) { pos = tc_end + TC_CLOSE.size(); continue; }
-        std::string fn_name = block.substr(fn_name_start, fn_name_end - fn_name_start);
+        // Extract tag name (up to '>' or space, no '/')
+        size_t tag_name_end = tag_open + 1;
+        while (tag_name_end < content.size() &&
+               content[tag_name_end] != '>' &&
+               content[tag_name_end] != ' ' &&
+               content[tag_name_end] != '/') {
+            ++tag_name_end;
+        }
+        if (tag_name_end >= content.size() || content[tag_name_end] != '>') {
+            pos = tag_open + 1;
+            continue;
+        }
 
+        std::string tag_name = content.substr(tag_open + 1, tag_name_end - tag_open - 1);
+        if (tag_name.empty()) { pos = tag_open + 1; continue; }
+
+        // Find matching closing tag
+        std::string close_tag = "</" + tag_name + ">";
+        size_t block_start = tag_name_end + 1;
+        size_t close_pos = content.find(close_tag, block_start);
+        if (close_pos == std::string::npos) { pos = tag_open + 1; continue; }
+
+        std::string block = content.substr(block_start, close_pos - block_start);
+
+        // Extract <key>value</key> parameter pairs from block
         ToolCall call;
-        call.id   = "hermes_" + std::to_string(call_index++);
-        call.name = fn_name;
+        call.id   = "xml_" + std::to_string(call_index++);
+        call.name = tag_name;
 
-        // Extract parameters
         size_t p_pos = 0;
-        while (true) {
-            size_t param_start = block.find(PARAM_OPEN, p_pos);
-            if (param_start == std::string::npos) break;
-            size_t key_start = param_start + PARAM_OPEN.size();
-            size_t key_end   = block.find('>', key_start);
-            if (key_end == std::string::npos) break;
-            std::string key = block.substr(key_start, key_end - key_start);
+        while (p_pos < block.size()) {
+            size_t param_open = block.find('<', p_pos);
+            if (param_open == std::string::npos) break;
+            if (param_open + 1 < block.size() && block[param_open + 1] == '/') {
+                p_pos = param_open + 1; continue;
+            }
 
+            size_t key_end = param_open + 1;
+            while (key_end < block.size() && block[key_end] != '>' && block[key_end] != ' ') ++key_end;
+            if (key_end >= block.size() || block[key_end] != '>') { p_pos = param_open + 1; continue; }
+
+            std::string key = block.substr(param_open + 1, key_end - param_open - 1);
+            if (key.empty()) { p_pos = param_open + 1; continue; }
+
+            std::string end_tag = "</" + key + ">";
             size_t val_start = key_end + 1;
-            size_t val_end   = block.find(PARAM_CLOSE, val_start);
-            if (val_end == std::string::npos) break;
-            std::string val = block.substr(val_start, val_end - val_start);
+            size_t val_end   = block.find(end_tag, val_start);
+            if (val_end == std::string::npos) { p_pos = param_open + 1; continue; }
 
-            // Trim leading/trailing whitespace and newlines
+            std::string val = block.substr(val_start, val_end - val_start);
+            // Trim whitespace
             size_t vs = val.find_first_not_of(" \t\r\n");
             size_t ve = val.find_last_not_of(" \t\r\n");
-            if (vs != std::string::npos) val = val.substr(vs, ve - vs + 1);
-            else val = "";
+            val = (vs != std::string::npos) ? val.substr(vs, ve - vs + 1) : "";
 
             JsonValue jval; jval.data = val;
             call.args[key] = jval;
-            p_pos = val_end + PARAM_CLOSE.size();
+            p_pos = val_end + end_tag.size();
         }
 
         result.push_back(call);
-        pos = tc_end + TC_CLOSE.size();
+        pos = close_pos + close_tag.size();
     }
 
     return result;
@@ -319,8 +250,8 @@ LlmClient::HttpResult LlmClient::send_with_retry(const std::string& request_body
 // ============================================================================
 
 LlmResponse LlmClient::complete(const ContextManager& context,
-                                const std::vector<ToolDef>& tools) {
-    std::string request_body = build_request_json(context, tools, config_);
+                                const std::vector<ToolDef>& /*tools*/) {
+    std::string request_body = build_request_json(context, config_);
     HttpResult http_result = send_with_retry(request_body);
 
     if (config_.debug) {

@@ -18,11 +18,10 @@ public:
 
     // Static helpers exposed for unit testing (no CURL needed)
     static std::string  build_request_json(const ContextManager& ctx,
-                                           const std::vector<ToolDef>& tools,
                                            const Config& cfg);
     static LlmResponse  parse_response_json(const std::string& body);
     static bool         is_retryable_status(int http_status);
-    static std::vector<ToolCall> parse_hermes_tool_calls(const std::string& text);
+    static std::vector<ToolCall> parse_xml_tool_calls(const std::string& content);
 
 private:
     Config  config_;

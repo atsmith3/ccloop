@@ -4,6 +4,26 @@
 #include <atomic>
 #include <set>
 
+static std::string build_tools_prompt(const std::vector<ToolDef>& tools) {
+    std::ostringstream ss;
+    ss << "## Tools\n\n"
+       << "To use a tool, output ONLY the XML block — no surrounding text. "
+       << "One tool per response. Wait for the result before continuing.\n";
+
+    for (const auto& tool : tools) {
+        ss << "\n<" << tool.name << ">\n";
+        for (const auto& p : tool.params) {
+            ss << "<" << p.name << ">"
+               << p.description
+               << " (" << p.type << ", " << (p.required ? "required" : "optional") << ")"
+               << "</" << p.name << ">\n";
+        }
+        ss << "</" << tool.name << ">\n"
+           << tool.description << "\n";
+    }
+    return ss.str();
+}
+
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode), context_(config.token_limit), llm_(config),
       registry_(make_registry(initial_mode, config)), ui_(ui) {}
@@ -16,6 +36,8 @@ void Agent::run() {
 }
 
 std::string Agent::system_prompt() const {
+    std::string tools_section = "\n\n" + build_tools_prompt(registry_.definitions());
+
     switch (mode_) {
         case AgentMode::Plan:
             return
@@ -41,7 +63,8 @@ std::string Agent::system_prompt() const {
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
                 "that you have not confirmed exist. Do not write or modify any files.\n"
                 "When your plan is complete, tell the user: "
-                "\"Plan ready — type /mode act to begin execution.\"";
+                "\"Plan ready — type /mode act to begin execution.\""
+                + tools_section;
         case AgentMode::Act:
             return
                 "You are an expert software engineer executing tasks precisely and methodically.\n\n"
@@ -73,7 +96,8 @@ std::string Agent::system_prompt() const {
                 "  **Modified**: [changed files, or \"none\"]\n"
                 "  **Steps**: N of N completed\n\n"
                 "Match existing code style. Stay within plan scope. "
-                "Explain errors before asking for help. Ask before destructive actions.";
+                "Explain errors before asking for help. Ask before destructive actions."
+                + tools_section;
     }
     return "";
 }
@@ -118,35 +142,14 @@ void Agent::loop() {
 
             context_.sync_token_count(response.usage);
 
-            // Convert tool calls to records for storage
-            std::vector<ToolCallRecord> tool_records;
-            for (const auto& call : response.tool_calls) {
-                ToolCallRecord rec;
-                rec.id = call.id;
-                rec.name = call.name;
-                // Serialize args back to JSON string
-                std::ostringstream args_ss;
-                args_ss << "{";
-                bool first = true;
-                for (const auto& [key, val] : call.args) {
-                    if (!first) args_ss << ",";
-                    args_ss << "\"" << escape_json(key) << "\":";
-                    args_ss << to_json(val);
-                    first = false;
-                }
-                args_ss << "}";
-                rec.arguments_json = args_ss.str();
-                tool_records.push_back(rec);
-            }
-
-            if (!tool_records.empty()) {
+            if (!response.tool_calls.empty()) {
                 // Assistant called tools — push message and execute them
-                context_.push_assistant(response.content, tool_records);
+                context_.push_assistant(response.content);
                 handle_tool_calls(response.tool_calls);
                 continue;
             } else if (!response.content.empty()) {
                 // Normal text response — push and show
-                context_.push_assistant(response.content, {});
+                context_.push_assistant(response.content);
                 ui_.show_message("agent", response.content);
             } else {
                 // Empty content, no tool calls — don't pollute context
@@ -183,7 +186,7 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
         if (!tool_opt.has_value()) {
             ToolResult result = ToolResult::fail("Tool not found: " + call.name);
             ui_.show_tool_result(call, result);
-            context_.push_tool_result(call.id, result);
+            context_.push_tool_result(call.name, result);
             continue;
         }
 
@@ -192,7 +195,7 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
         // Execute tool
         ToolResult result = tool->fn(call.args);
         ui_.show_tool_result(call, result);
-        context_.push_tool_result(call.id, result);
+        context_.push_tool_result(call.name, result);
     }
 }
 

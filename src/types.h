@@ -54,22 +54,13 @@ struct ToolResult {
     std::string to_context_string() const;
 };
 
-// Tool call record stored in context
-struct ToolCallRecord {
-    std::string id;
-    std::string name;
-    std::string arguments_json;   // raw, preserved exactly
-};
-
 // Single context message
 struct Message {
-    enum class Role { System, User, Assistant, Tool };
+    enum class Role { System, User, Assistant };
 
-    Role                        role;
-    std::string                 content;
-    std::vector<ToolCallRecord> tool_calls;        // assistant only
-    std::string                 tool_call_id;      // tool only
-    size_t                      estimated_tokens = 0;
+    Role        role;
+    std::string content;
+    size_t      estimated_tokens = 0;
 };
 
 // LLM response

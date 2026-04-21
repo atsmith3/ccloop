@@ -8,7 +8,7 @@ TEST(llm_request_build_basic) {
     ContextManager ctx(8000);
     ctx.push_user("hello");
 
-    std::string request = LlmClient::build_request_json(ctx, {}, cfg);
+    std::string request = LlmClient::build_request_json(ctx, cfg);
     JsonValue parsed = parse_json(request);
 
     CHECK(parsed.get("model"));
@@ -17,24 +17,13 @@ TEST(llm_request_build_basic) {
     CHECK(parsed.get("temperature"));
 }
 
-TEST(llm_request_build_with_tools) {
+TEST(llm_request_no_tools_array) {
     Config cfg = Config::defaults();
     ContextManager ctx(8000);
-    ctx.push_user("read a file");
+    ctx.push_user("hello");
 
-    ToolDef tool;
-    tool.name = "read_file";
-    tool.description = "Read file contents";
-    tool.params.push_back({"path", "string", "File path", true});
-
-    std::vector<ToolDef> tools = {tool};
-    std::string request = LlmClient::build_request_json(ctx, tools, cfg);
-    JsonValue parsed = parse_json(request);
-
-    CHECK(parsed.get("tools").has_value());
-    auto tools_val = parsed.get("tools");
-    CHECK(tools_val->is_array());
-    CHECK(tools_val->as_array().size() > 0);
+    std::string request = LlmClient::build_request_json(ctx, cfg);
+    CHECK(request.find("\"tools\"") == std::string::npos);
 }
 
 TEST(llm_parse_response_text_only) {
@@ -59,35 +48,6 @@ TEST(llm_parse_response_text_only) {
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(25));
 }
 
-TEST(llm_parse_response_tool_calls) {
-    std::string response = R"({
-        "choices": [{
-            "message": {
-                "content": "I'll read that file for you",
-                "tool_calls": [{
-                    "id": "call_123",
-                    "function": {
-                        "name": "read_file",
-                        "arguments": "{\"path\":\"/etc/passwd\"}"
-                    }
-                }]
-            },
-            "finish_reason": "tool_calls"
-        }],
-        "usage": {
-            "prompt_tokens": 20,
-            "completion_tokens": 25,
-            "total_tokens": 45
-        }
-    })";
-
-    LlmResponse llm_resp = LlmClient::parse_response_json(response);
-    CHECK_EQ(llm_resp.tool_calls.size(), size_t(1));
-    CHECK_EQ(llm_resp.tool_calls[0].id, std::string("call_123"));
-    CHECK_EQ(llm_resp.tool_calls[0].name, std::string("read_file"));
-    CHECK(llm_resp.tool_calls[0].args.find("path") != llm_resp.tool_calls[0].args.end());
-}
-
 TEST(llm_parse_response_usage) {
     std::string response = R"({
         "choices": [{
@@ -107,39 +67,6 @@ TEST(llm_parse_response_usage) {
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(150));
 }
 
-TEST(llm_extract_tool_calls_multi) {
-    std::string response = R"({
-        "choices": [{
-            "message": {
-                "content": "Running two operations",
-                "tool_calls": [
-                    {
-                        "id": "call_1",
-                        "function": {
-                            "name": "read_file",
-                            "arguments": "{\"path\":\"/file1\"}"
-                        }
-                    },
-                    {
-                        "id": "call_2",
-                        "function": {
-                            "name": "list_dir",
-                            "arguments": "{\"path\":\"/dir\"}"
-                        }
-                    }
-                ]
-            },
-            "finish_reason": "tool_calls"
-        }],
-        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
-    })";
-
-    LlmResponse llm_resp = LlmClient::parse_response_json(response);
-    CHECK_EQ(llm_resp.tool_calls.size(), size_t(2));
-    CHECK_EQ(llm_resp.tool_calls[0].name, std::string("read_file"));
-    CHECK_EQ(llm_resp.tool_calls[1].name, std::string("list_dir"));
-}
-
 TEST(llm_parse_malformed_response) {
     std::string response = R"({
         "choices": [{
@@ -147,17 +74,15 @@ TEST(llm_parse_malformed_response) {
         }]
     })";
 
-    // Should parse gracefully without crash
     LlmResponse llm_resp = LlmClient::parse_response_json(response);
     CHECK_EQ(llm_resp.content, std::string("fallback"));
-    // Missing usage fields default to 0
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(0));
 }
 
 TEST(llm_parse_malformed_json_sets_is_error) {
     LlmResponse r = LlmClient::parse_response_json("not valid json {{{{");
     CHECK(r.is_error);
-    CHECK(!r.content.empty());  // error message present
+    CHECK(!r.content.empty());
 }
 
 TEST(llm_parse_response_is_error_false_for_success) {
@@ -175,10 +100,8 @@ TEST(llm_build_request_json_escapes_model_name) {
     ContextManager ctx(8000);
     ctx.push_user("test");
 
-    std::string request = LlmClient::build_request_json(ctx, {}, cfg);
-    // The literal quote chars must be escaped as \"
+    std::string request = LlmClient::build_request_json(ctx, cfg);
     CHECK(request.find("my-\\\"model\\\"") != std::string::npos);
-    // The raw unescaped form must NOT appear as a bare string boundary
     CHECK(request.find("\"my-\"model\"\"") == std::string::npos);
 }
 
@@ -198,11 +121,11 @@ TEST(llm_non_retryable_error_401) {
     CHECK(!LlmClient::is_retryable_status(401));
 }
 
-TEST(llm_parse_hermes_single_tool_call) {
+TEST(llm_parse_xml_single_tool_call) {
     std::string body = R"({
         "choices":[{"finish_reason":"stop","message":{
-            "content":"","role":"assistant",
-            "reasoning_content":"Thinking...\n<tool_call>\n<function=read_file>\n<parameter=path>\n/tmp/x.txt\n</parameter>\n</function>\n</tool_call>"
+            "content":"<read_file>\n<path>/tmp/x.txt</path>\n</read_file>",
+            "role":"assistant"
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
@@ -214,11 +137,11 @@ TEST(llm_parse_hermes_single_tool_call) {
     CHECK(!r.tool_calls[0].id.empty());
 }
 
-TEST(llm_parse_hermes_multiple_tool_calls) {
+TEST(llm_parse_xml_multiple_tool_calls) {
     std::string body = R"({
         "choices":[{"finish_reason":"stop","message":{
-            "content":"","role":"assistant",
-            "reasoning_content":"<tool_call>\n<function=read_file>\n<parameter=path>\n/tmp/a.txt\n</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=list_dir>\n<parameter=path>\n/tmp\n</parameter>\n</function>\n</tool_call>"
+            "content":"<read_file>\n<path>/tmp/a.txt</path>\n</read_file>\n<list_dir>\n<path>/tmp</path>\n</list_dir>",
+            "role":"assistant"
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
@@ -229,15 +152,31 @@ TEST(llm_parse_hermes_multiple_tool_calls) {
     CHECK(r.tool_calls[0].id != r.tool_calls[1].id);
 }
 
-TEST(llm_parse_hermes_no_reasoning_content) {
+TEST(llm_parse_xml_no_tool_calls) {
     std::string body = R"({
         "choices":[{"finish_reason":"stop","message":{
-            "content":"just text","role":"assistant"
+            "content":"just plain text, no tool calls",
+            "role":"assistant"
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
     LlmResponse r = LlmClient::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(0));
-    CHECK_EQ(r.content, std::string("just text"));
+    CHECK_EQ(r.content, std::string("just plain text, no tool calls"));
 }
 
+TEST(llm_parse_xml_multiple_params) {
+    std::string body = R"({
+        "choices":[{"finish_reason":"stop","message":{
+            "content":"<search_files>\n<path>/src</path>\n<pattern>main</pattern>\n<file_glob>*.cpp</file_glob>\n</search_files>",
+            "role":"assistant"
+        }}],
+        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+    })";
+    LlmResponse r = LlmClient::parse_response_json(body);
+    CHECK_EQ(r.tool_calls.size(), size_t(1));
+    CHECK_EQ(r.tool_calls[0].name, std::string("search_files"));
+    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/src"));
+    CHECK_EQ(r.tool_calls[0].args.at("pattern").as_string(), std::string("main"));
+    CHECK_EQ(r.tool_calls[0].args.at("file_glob").as_string(), std::string("*.cpp"));
+}
