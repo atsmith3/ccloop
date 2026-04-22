@@ -41,7 +41,12 @@ void Agent::run(const std::string& initial_prompt) {
 }
 
 std::string Agent::system_prompt() const {
-    std::string tools_section = "\n\n" + build_tools_prompt(registry_.definitions());
+    // XML tool instructions are only injected for QwenXml connector;
+    // OpenAI JSON and Bedrock connectors receive tool definitions via the API.
+    std::string tools_section;
+    if (config_.connector_type == ConnectorType::QwenXml) {
+        tools_section = "\n\n" + build_tools_prompt(registry_.definitions());
+    }
 
     switch (mode_) {
         case AgentMode::Plan:

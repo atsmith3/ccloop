@@ -436,7 +436,10 @@ ToolResult tool_run_shell(const ToolArgs& args) {
     }
 
     if (pid == 0) {
-        // Child process
+        // Child process: put in its own process group so kill(-pgid) kills
+        // the shell and all grandchildren (e.g. sleep spawned by sh -c)
+        setpgid(0, 0);
+
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         dup2(pipefd[1], STDERR_FILENO);
@@ -467,7 +470,7 @@ ToolResult tool_run_shell(const ToolArgs& args) {
         auto elapsed = std::chrono::steady_clock::now() - start_time;
         if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= timeout_sec) {
             timed_out = true;
-            kill(pid, SIGKILL);
+            kill(-pid, SIGKILL);  // kill entire process group (shell + grandchildren)
             waitpid(pid, &status, 0);
             // Drain remaining buffered output before closing the pipe
             {

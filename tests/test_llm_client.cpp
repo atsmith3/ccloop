@@ -1,14 +1,21 @@
 #include "harness.h"
-#include "../src/llm_client.h"
+#include "../src/connector_qwen.h"
+#include "../src/connector_openai.h"
+#include "../src/connector_bedrock.h"
+#include "../src/connector_base.h"
 #include "../src/context.h"
 #include "../src/json.h"
+
+// ============================================================================
+// QwenConnector tests (formerly LlmClient static method tests)
+// ============================================================================
 
 TEST(llm_request_build_basic) {
     Config cfg = Config::defaults();
     ContextManager ctx(8000);
     ctx.push_user("hello");
 
-    std::string request = LlmClient::build_request_json(ctx, cfg);
+    std::string request = QwenConnector::build_request_json(ctx, cfg);
     JsonValue parsed = parse_json(request);
 
     CHECK(parsed.get("model"));
@@ -22,7 +29,7 @@ TEST(llm_request_no_tools_array) {
     ContextManager ctx(8000);
     ctx.push_user("hello");
 
-    std::string request = LlmClient::build_request_json(ctx, cfg);
+    std::string request = QwenConnector::build_request_json(ctx, cfg);
     CHECK(request.find("\"tools\"") == std::string::npos);
 }
 
@@ -41,7 +48,7 @@ TEST(llm_parse_response_text_only) {
         }
     })";
 
-    LlmResponse llm_resp = LlmClient::parse_response_json(response);
+    LlmResponse llm_resp = QwenConnector::parse_response_json(response);
     CHECK_EQ(llm_resp.content, std::string("Hello, this is a response"));
     CHECK_EQ(llm_resp.usage.prompt_tokens, size_t(10));
     CHECK_EQ(llm_resp.usage.completion_tokens, size_t(15));
@@ -61,7 +68,7 @@ TEST(llm_parse_response_usage) {
         }
     })";
 
-    LlmResponse llm_resp = LlmClient::parse_response_json(response);
+    LlmResponse llm_resp = QwenConnector::parse_response_json(response);
     CHECK_EQ(llm_resp.usage.prompt_tokens, size_t(100));
     CHECK_EQ(llm_resp.usage.completion_tokens, size_t(50));
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(150));
@@ -74,13 +81,13 @@ TEST(llm_parse_malformed_response) {
         }]
     })";
 
-    LlmResponse llm_resp = LlmClient::parse_response_json(response);
+    LlmResponse llm_resp = QwenConnector::parse_response_json(response);
     CHECK_EQ(llm_resp.content, std::string("fallback"));
     CHECK_EQ(llm_resp.usage.total_tokens, size_t(0));
 }
 
 TEST(llm_parse_malformed_json_sets_is_error) {
-    LlmResponse r = LlmClient::parse_response_json("not valid json {{{{");
+    LlmResponse r = QwenConnector::parse_response_json("not valid json {{{{");
     CHECK(r.is_error);
     CHECK(!r.content.empty());
 }
@@ -90,7 +97,7 @@ TEST(llm_parse_response_is_error_false_for_success) {
         "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
     })";
-    LlmResponse r = LlmClient::parse_response_json(response);
+    LlmResponse r = QwenConnector::parse_response_json(response);
     CHECK(!r.is_error);
 }
 
@@ -100,25 +107,25 @@ TEST(llm_build_request_json_escapes_model_name) {
     ContextManager ctx(8000);
     ctx.push_user("test");
 
-    std::string request = LlmClient::build_request_json(ctx, cfg);
+    std::string request = QwenConnector::build_request_json(ctx, cfg);
     CHECK(request.find("my-\\\"model\\\"") != std::string::npos);
     CHECK(request.find("\"my-\"model\"\"") == std::string::npos);
 }
 
 TEST(llm_retryable_error_429) {
-    CHECK(LlmClient::is_retryable_status(429));
+    CHECK(ConnectorBase::is_retryable_status(429));
 }
 
 TEST(llm_retryable_error_503) {
-    CHECK(LlmClient::is_retryable_status(503));
+    CHECK(ConnectorBase::is_retryable_status(503));
 }
 
 TEST(llm_non_retryable_error_400) {
-    CHECK(!LlmClient::is_retryable_status(400));
+    CHECK(!ConnectorBase::is_retryable_status(400));
 }
 
 TEST(llm_non_retryable_error_401) {
-    CHECK(!LlmClient::is_retryable_status(401));
+    CHECK(!ConnectorBase::is_retryable_status(401));
 }
 
 TEST(llm_parse_xml_single_tool_call) {
@@ -129,7 +136,7 @@ TEST(llm_parse_xml_single_tool_call) {
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
-    LlmResponse r = LlmClient::parse_response_json(body);
+    LlmResponse r = QwenConnector::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(1));
     CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
     CHECK(r.tool_calls[0].args.count("path") > 0);
@@ -145,7 +152,7 @@ TEST(llm_parse_xml_multiple_tool_calls) {
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
-    LlmResponse r = LlmClient::parse_response_json(body);
+    LlmResponse r = QwenConnector::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(2));
     CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
     CHECK_EQ(r.tool_calls[1].name, std::string("list_dir"));
@@ -160,7 +167,7 @@ TEST(llm_parse_xml_no_tool_calls) {
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
-    LlmResponse r = LlmClient::parse_response_json(body);
+    LlmResponse r = QwenConnector::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(0));
     CHECK_EQ(r.content, std::string("just plain text, no tool calls"));
 }
@@ -173,10 +180,169 @@ TEST(llm_parse_xml_multiple_params) {
         }}],
         "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
     })";
-    LlmResponse r = LlmClient::parse_response_json(body);
+    LlmResponse r = QwenConnector::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(1));
     CHECK_EQ(r.tool_calls[0].name, std::string("search_files"));
     CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/src"));
     CHECK_EQ(r.tool_calls[0].args.at("pattern").as_string(), std::string("main"));
     CHECK_EQ(r.tool_calls[0].args.at("file_glob").as_string(), std::string("*.cpp"));
+}
+
+// ============================================================================
+// OpenAiConnector tests
+// ============================================================================
+
+TEST(openai_request_has_tools_array) {
+    Config cfg = Config::defaults();
+    ContextManager ctx(8000);
+    ctx.push_user("hello");
+
+    std::vector<ToolDef> tools = {{
+        "read_file", "Read a file",
+        {{"path", "string", "File path", true}}
+    }};
+
+    std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);
+    CHECK(request.find("\"tools\"") != std::string::npos);
+    CHECK(request.find("\"function\"") != std::string::npos);
+    CHECK(request.find("\"read_file\"") != std::string::npos);
+}
+
+TEST(openai_request_no_tools_when_empty) {
+    Config cfg = Config::defaults();
+    ContextManager ctx(8000);
+    ctx.push_user("hello");
+
+    std::string request = OpenAiConnector::build_request_json(ctx, cfg, {});
+    CHECK(request.find("\"tools\"") == std::string::npos);
+}
+
+TEST(openai_parse_tool_calls) {
+    std::string body = R"({
+        "choices": [{
+            "message": {
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_abc123",
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"/tmp/test.txt\"}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    })";
+
+    LlmResponse r = OpenAiConnector::parse_response_json(body);
+    CHECK_EQ(r.tool_calls.size(), size_t(1));
+    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
+    CHECK_EQ(r.tool_calls[0].id, std::string("call_abc123"));
+    CHECK(r.tool_calls[0].args.count("path") > 0);
+    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/tmp/test.txt"));
+}
+
+TEST(openai_parse_text_only_response) {
+    std::string body = R"({
+        "choices": [{
+            "message": {"content": "Hello world"},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+    })";
+
+    LlmResponse r = OpenAiConnector::parse_response_json(body);
+    CHECK_EQ(r.content, std::string("Hello world"));
+    CHECK_EQ(r.tool_calls.size(), size_t(0));
+    CHECK(!r.is_error);
+}
+
+TEST(openai_parse_malformed_json_sets_is_error) {
+    LlmResponse r = OpenAiConnector::parse_response_json("not json");
+    CHECK(r.is_error);
+}
+
+// ============================================================================
+// BedrockConnector tests
+// ============================================================================
+
+TEST(bedrock_request_has_system_field) {
+    Config cfg = Config::defaults();
+    ContextManager ctx(8000);
+    ctx.push_system("You are a helpful assistant.");
+    ctx.push_user("hello");
+
+    std::string request = BedrockConnector::build_request_json(ctx, cfg, {});
+    CHECK(request.find("\"system\"") != std::string::npos);
+    CHECK(request.find("You are a helpful assistant.") != std::string::npos);
+    CHECK(request.find("\"messages\"") != std::string::npos);
+}
+
+TEST(bedrock_request_has_tool_config) {
+    Config cfg = Config::defaults();
+    ContextManager ctx(8000);
+    ctx.push_user("hello");
+
+    std::vector<ToolDef> tools = {{
+        "read_file", "Read a file",
+        {{"path", "string", "File path", true}}
+    }};
+
+    std::string request = BedrockConnector::build_request_json(ctx, cfg, tools);
+    CHECK(request.find("\"toolConfig\"") != std::string::npos);
+    CHECK(request.find("\"toolSpec\"") != std::string::npos);
+    CHECK(request.find("\"read_file\"") != std::string::npos);
+}
+
+TEST(bedrock_parse_text_response) {
+    std::string body = R"({
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [{"text": "Hello from Bedrock"}]
+            }
+        },
+        "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+        "stopReason": "end_turn"
+    })";
+
+    LlmResponse r = BedrockConnector::parse_response_json(body);
+    CHECK_EQ(r.content, std::string("Hello from Bedrock"));
+    CHECK_EQ(r.tool_calls.size(), size_t(0));
+    CHECK_EQ(r.usage.prompt_tokens, size_t(10));
+    CHECK_EQ(r.usage.completion_tokens, size_t(5));
+    CHECK(!r.is_error);
+}
+
+TEST(bedrock_parse_tool_use) {
+    std::string body = R"({
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "toolUse": {
+                        "toolUseId": "bedrock_tool_001",
+                        "name": "read_file",
+                        "input": {"path": "/tmp/test.txt"}
+                    }
+                }]
+            }
+        },
+        "usage": {"inputTokens": 20, "outputTokens": 10, "totalTokens": 30},
+        "stopReason": "tool_use"
+    })";
+
+    LlmResponse r = BedrockConnector::parse_response_json(body);
+    CHECK_EQ(r.tool_calls.size(), size_t(1));
+    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
+    CHECK_EQ(r.tool_calls[0].id, std::string("bedrock_tool_001"));
+    CHECK(r.tool_calls[0].args.count("path") > 0);
+    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/tmp/test.txt"));
+}
+
+TEST(bedrock_parse_malformed_json_sets_is_error) {
+    LlmResponse r = BedrockConnector::parse_response_json("not json");
+    CHECK(r.is_error);
 }

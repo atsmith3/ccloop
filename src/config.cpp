@@ -97,6 +97,17 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.temperature = std::stof(value);
         } else if (key == "token_limit") {
             cfg.token_limit = std::stoul(value);
+        } else if (key == "connector") {
+            std::string v = parse_string_value(value);
+            if      (v == "openai-json") cfg.connector_type = ConnectorType::OpenAiJson;
+            else if (v == "bedrock")     cfg.connector_type = ConnectorType::Bedrock;
+            else                         cfg.connector_type = ConnectorType::QwenXml;
+        } else if (key == "aws_region") {
+            cfg.aws_region = parse_string_value(value);
+        } else if (key == "aws_access_key") {
+            cfg.aws_access_key = parse_string_value(value);
+        } else if (key == "aws_secret_key") {
+            cfg.aws_secret_key = parse_string_value(value);
         }
     }
 }
@@ -154,4 +165,13 @@ void Config::apply_env_overrides(Config& cfg) {
             // Ignore invalid timeout
         }
     }
+
+    const char* aws_region = std::getenv("AWS_REGION");
+    if (aws_region) cfg.aws_region = aws_region;
+
+    const char* aws_access_key = std::getenv("AWS_ACCESS_KEY_ID");
+    if (aws_access_key) cfg.aws_access_key = aws_access_key;
+
+    const char* aws_secret_key = std::getenv("AWS_SECRET_ACCESS_KEY");
+    if (aws_secret_key) cfg.aws_secret_key = aws_secret_key;
 }
