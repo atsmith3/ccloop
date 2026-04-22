@@ -219,6 +219,75 @@ TEST(config_aws_env_vars_override) {
     unsetenv("AWS_SECRET_ACCESS_KEY");
 }
 
+// ============================================================================
+// TOML parsing edge cases
+// ============================================================================
+
+TEST(config_toml_comments_stripped) {
+    std::string path = create_temp_toml(
+        "endpoint = \"http://commented:9000/v1\"  # this is a comment\n"
+        "model = \"test-model\"  # another comment\n");
+    Config cfg = Config::load(path);
+    CHECK_EQ(cfg.endpoint, std::string("http://commented:9000/v1"));
+    CHECK_EQ(cfg.model, std::string("test-model"));
+    fs::remove(path);
+}
+
+TEST(config_empty_toml_uses_defaults) {
+    std::string path = create_temp_toml("\n\n   \n");
+    Config cfg = Config::load(path);
+    Config def = Config::defaults();
+    CHECK_EQ(cfg.endpoint, def.endpoint);
+    CHECK_EQ(cfg.model, def.model);
+    CHECK_EQ(cfg.timeout_sec, def.timeout_sec);
+    fs::remove(path);
+}
+
+TEST(config_unknown_keys_ignored) {
+    std::string path = create_temp_toml(
+        "model = \"known-model\"\n"
+        "totally_unknown_setting = \"ignored\"\n"
+        "another_bogus_key = 42\n");
+    Config cfg = Config::load(path);
+    CHECK_EQ(cfg.model, std::string("known-model"));  // known key parsed
+    // No crash from unknown keys
+    fs::remove(path);
+}
+
+TEST(config_invalid_timeout_env_ignored) {
+    Config cfg = Config::defaults();
+    int original = cfg.timeout_sec;
+    setenv("CCL_TIMEOUT", "notanumber", 1);
+    Config::apply_env_overrides(cfg);
+    unsetenv("CCL_TIMEOUT");
+    CHECK_EQ(cfg.timeout_sec, original);  // unchanged
+}
+
+TEST(config_ccl_config_env_var) {
+    std::string path = create_temp_toml("model = \"via-env-config\"\n");
+    setenv("CCL_CONFIG", path.c_str(), 1);
+    Config cfg = Config::load("");  // no explicit path — should pick up CCL_CONFIG
+    unsetenv("CCL_CONFIG");
+    CHECK_EQ(cfg.model, std::string("via-env-config"));
+    fs::remove(path);
+}
+
+TEST(config_boolean_case_insensitive) {
+    std::string content =
+        "[permissions]\n"
+        "read   = False\n"
+        "write  = False\n"
+        "delete = True\n"
+        "shell  = TRUE\n";
+    std::string path = create_temp_toml(content);
+    Config cfg = Config::load(path);
+    CHECK(!cfg.permissions.auto_approve_read);
+    CHECK(!cfg.permissions.auto_approve_write);
+    CHECK(cfg.permissions.auto_approve_delete);
+    CHECK(cfg.permissions.auto_approve_shell);
+    fs::remove(path);
+}
+
 TEST(config_search_project_local) {
     // Create temp files in temp directory
     std::string tmpdir = fs::temp_directory_path().string();

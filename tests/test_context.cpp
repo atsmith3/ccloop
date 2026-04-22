@@ -207,3 +207,59 @@ TEST(context_compact_leaves_below_limit) {
 
     CHECK(!ctx.needs_compaction());
 }
+
+// ============================================================================
+// Edge cases
+// ============================================================================
+
+TEST(context_push_empty_message_zero_tokens) {
+    ContextManager ctx(8000);
+    ctx.push_user("");
+    CHECK_EQ(ctx.message_count(), size_t(1));
+    // estimate_tokens("") = (0+3)/4 = 0 in integer division
+    CHECK_EQ(ctx.total_tokens(), size_t(0));
+}
+
+TEST(context_to_json_escapes_quotes_in_content) {
+    ContextManager ctx(8000);
+    ctx.push_user("say \"hello\" and \\world");
+    // parse_json will throw if escaping is wrong — harness catches it as FAIL
+    JsonValue parsed = parse_json(ctx.to_json());
+    auto content = parsed.get(size_t(0))->get("content");
+    CHECK(content.has_value());
+    CHECK_EQ(content->as_string(), std::string("say \"hello\" and \\world"));
+}
+
+TEST(context_to_json_escapes_newlines_in_content) {
+    ContextManager ctx(8000);
+    ctx.push_assistant("line1\nline2\ttabbed");
+    JsonValue parsed = parse_json(ctx.to_json());
+    auto content = parsed.get(size_t(0))->get("content");
+    CHECK(content.has_value());
+    CHECK_EQ(content->as_string(), std::string("line1\nline2\ttabbed"));
+}
+
+TEST(context_compact_all_assistant_no_user) {
+    // system + 3 assistants with no user messages in between
+    // compact() should drop all 3 assistants as one group
+    ContextManager ctx(5);
+    ctx.push_system("s");                        // ~1 token
+    std::string msg(20, 'a');                    // (20+3)/4 = 5 tokens each
+    ctx.push_assistant(msg);                     // total = 6 > 5 → needs compact
+    ctx.push_assistant(msg);
+    ctx.push_assistant(msg);
+
+    CHECK(ctx.needs_compaction());
+    ctx.compact();
+
+    // All 3 assistants dropped in one pass — only system remains
+    CHECK_EQ(ctx.message_count(), size_t(1));
+    CHECK(!ctx.needs_compaction());
+}
+
+TEST(context_compact_empty_context_no_crash) {
+    ContextManager ctx(8000);
+    // compact() on empty context should be a no-op, not crash
+    ctx.compact();
+    CHECK_EQ(ctx.message_count(), size_t(0));
+}
