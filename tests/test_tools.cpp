@@ -1,5 +1,6 @@
 #include "harness.h"
 #include "../src/tools.h"
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 
@@ -375,6 +376,32 @@ TEST(tool_run_shell_nonzero_exit_fails) {
     ToolResult result = tool_run_shell(args);
     CHECK(!result.success);
     CHECK(result.error.find("exit 1") != std::string::npos);
+}
+
+TEST(tool_run_shell_timeout_sec_override) {
+    ToolArgs args;
+    args["command"] = JsonValue(); args["command"].data.emplace<std::string>("sleep 100");
+    args["timeout_sec"] = JsonValue(); args["timeout_sec"].data.emplace<std::string>("1");
+
+    auto t0 = std::chrono::steady_clock::now();
+    ToolResult result = tool_run_shell(args);
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::steady_clock::now() - t0).count();
+
+    CHECK(!result.success);
+    CHECK(result.error.find("timeout after 1") != std::string::npos);
+    CHECK(elapsed < 15);  // must not wait 30s
+}
+
+TEST(tool_run_shell_timeout_captures_output) {
+    ToolArgs args;
+    args["command"] = JsonValue();
+    args["command"].data.emplace<std::string>("echo started && sleep 100");
+    args["timeout_sec"] = JsonValue(); args["timeout_sec"].data.emplace<std::string>("1");
+
+    ToolResult result = tool_run_shell(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("started") != std::string::npos);
 }
 
 TEST(tool_run_shell_timeout_kills_process) {
