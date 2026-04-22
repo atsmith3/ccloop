@@ -5,7 +5,7 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 ## Features
 
 - **Agentic loop:** Agent reads code, formulates plans, executes with approval
-- **Three modes:** Explore (read-only Q&A), Plan (builds plans), Act (executes changes)
+- **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
 - **Tool-use:** Read files, search code, write files atomically, run shell commands
 - **Streaming:** Real-time LLM token output via SSE
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
@@ -94,60 +94,72 @@ ccl
 ## Usage
 
 ```bash
-ccl                              # starts in Explore mode
-ccl --mode plan                  # start in Plan mode
-ccl --model qwen3-235b          # override model
+ccl                              # start in Plan mode (default)
+ccl --mode act                   # start in Act mode
+ccl -m act                       # short form of --mode
+ccl --model qwen3-235b           # override model
 ccl --endpoint http://localhost:4000/v1
 ccl --config /path/to/config.toml
-ccl --no-stream                  # disable streaming
+ccl --debug                      # log raw LLM responses to stderr
 ```
 
-### Session Example
+### Non-interactive / Subagent Mode
+
+Use `-p` to supply a prompt on the command line. The agent runs a full plan→act cycle and exits — no stdin required.
+
+```bash
+# Plan, execute, exit (default plan mode → auto-transitions to act)
+ccl -p "add input validation to the login endpoint"
+
+# Skip prompts for all tool calls
+ccl -p "add input validation to the login endpoint" -y
+
+# Start directly in act mode (no planning phase)
+ccl -p "add input validation to the login endpoint" -m act -y
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-p`/`--prompt <text>` | Run one turn non-interactively then exit. In plan mode (default), auto-transitions to act and exits after act completes. |
+| `-y`/`--yolo` | Auto-approve all tool calls — no approval prompts. |
+| `-m`/`--mode plan\|act` | Start in the specified mode (`-m` is a short alias for `--mode`). |
+
+### Interactive Session Example
 
 ```
-[ccl] Mode: explore | tokens: 0/8000
-> read the auth module and explain its structure
+[ccl] Mode: plan | tokens: 0/8000
+> refactor the auth module to use JWT tokens
 
-[agent] I'll read and analyze the auth module for you.
+[agent] Let me explore the codebase first.
 
-[call] read_file path=/src/auth.cpp (local)
+[call] read_file path=src/auth.cpp (local)
+[result] OK - 1842 bytes
 
-[result] OK - 312 bytes
-
-[agent] The auth module has three main components...
-
-tokens: 342/8000
-
-> /mode plan
-[ccl] Mode: plan
-
-> refactor to use JWT tokens
-
-[agent] Here's my refactoring plan:
-  1. Replace session tokens with JWT
-  2. Update validation logic
-  3. Add token expiration
+[agent] Here's my plan:
+  ## Plan: auth-jwt-refactor
+  1. [ ] Replace session token storage with JWT signing — src/auth.cpp
+  2. [ ] Add token expiration validation — src/auth.cpp
+  3. [ ] Update tests — tests/test_auth.cpp
 
 tokens: 645/8000
 
 > /mode act
 [ccl] Mode: act
 
-[agent] Starting refactoring...
-
-[call] write_file path=/src/auth.cpp (local)
+[call] write_file path=src/auth.cpp (local)
 Approve write_file? [y/n]: y
-[result] OK - wrote 1024 bytes
+[result] OK - wrote 2048 bytes
 
 [agent] Refactoring complete!
 
 tokens: 1203/8000
-
 >
 ```
 
 **Slash commands:**
-- `/mode explore|plan|act` — switch modes
+- `/mode plan|act` — switch modes
 - `/help` — show help
 - `/quit` — exit
 

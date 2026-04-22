@@ -29,10 +29,14 @@ Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode), context_(config.token_limit), llm_(config),
       registry_(make_registry(initial_mode, config)), ui_(ui) {}
 
-void Agent::run() {
+void Agent::run(const std::string& initial_prompt) {
     context_.push_system(system_prompt());
     ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+    if (!initial_prompt.empty()) {
+        pending_execution_ = initial_prompt;
+        non_interactive_ = true;
+    }
     loop();
 }
 
@@ -70,17 +74,12 @@ std::string Agent::system_prompt() const {
                 "You are an expert software engineer executing tasks precisely and methodically.\n\n"
                 "## Phase 1 — Identify or create the plan\n\n"
                 "If a numbered plan exists in the conversation context, use it.\n"
-                "If no plan exists, write one now (task steps only — do not include saving the plan):\n\n"
+                "If no plan exists, write one now:\n\n"
                 "  ## Plan: <short-descriptive-slug>\n"
                 "  1. [ ] task step one\n"
                 "  2. [ ] task step two\n"
                 "  ...\n\n"
-                "## Phase 2 — Save the plan (setup, NOT a task step)\n\n"
-                "Silently persist the plan before executing:\n"
-                "  create_dir ~/.ccl/plans\n"
-                "  write_file ~/.ccl/plans/<slug>.md  (task steps only, no meta-steps)\n"
-                "Announce once: \"Plan saved to ~/.ccl/plans/<slug>.md — beginning execution.\"\n\n"
-                "## Phase 3 — Execute every task step without pausing\n\n"
+                "## Phase 2 — Execute every task step without pausing\n\n"
                 "For each numbered task step:\n"
                 "- Announce: \"## Step N: [description]\"\n"
                 "- Read any file before modifying it\n"
@@ -88,10 +87,9 @@ std::string Agent::system_prompt() const {
                 "- Read the file back to verify\n"
                 "- Confirm: \"\\u2713 Step N complete\"\n"
                 "Do NOT pause between steps to ask permission. Complete all steps in one pass.\n\n"
-                "## Phase 4 — Completion report (always, without being asked)\n\n"
+                "## Phase 3 — Completion report (always, without being asked)\n\n"
                 "  ## Completed\n"
                 "  **Task**: [one-line summary]\n"
-                "  **Plan**: ~/.ccl/plans/<slug>.md\n"
                 "  **Created**: [new files, or \"none\"]\n"
                 "  **Modified**: [changed files, or \"none\"]\n"
                 "  **Steps**: N of N completed\n\n"
@@ -165,6 +163,15 @@ void Agent::loop() {
             }
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
+        }
+
+        if (non_interactive_) {
+            if (mode_ == AgentMode::Plan) {
+                // Plan turn complete — auto-transition to act and execute
+                transition_to(AgentMode::Act);
+                continue;  // pending_execution_ is now set by transition_to()
+            }
+            return;  // Act turn complete — exit
         }
     }
 }
@@ -285,8 +292,7 @@ void Agent::transition_to(AgentMode next) {
     if (prev == AgentMode::Plan && next == AgentMode::Act) {
         pending_execution_ =
             "A plan was just produced above. "
-            "Save it to ~/.ccl/plans/<slug>.md as setup (not a task step), "
-            "then immediately execute every task step in the plan without pausing. "
+            "Immediately execute every task step in the plan without pausing. "
             "Announce each step, confirm when done, "
             "and output a completion report when all task steps are finished.";
     }
