@@ -162,6 +162,63 @@ shell = true
     fs::remove(path);
 }
 
+// ============================================================================
+// Connector type config tests
+// ============================================================================
+
+TEST(config_connector_defaults_to_qwen) {
+    Config cfg = Config::defaults();
+    CHECK(cfg.connector_type == ConnectorType::QwenXml);
+}
+
+TEST(config_connector_openai_json_parsed) {
+    std::string path = create_temp_toml("connector = \"openai-json\"\n");
+    Config cfg = Config::load(path);
+    CHECK(cfg.connector_type == ConnectorType::OpenAiJson);
+    fs::remove(path);
+}
+
+TEST(config_connector_bedrock_parsed) {
+    std::string path = create_temp_toml("connector = \"bedrock\"\n");
+    Config cfg = Config::load(path);
+    CHECK(cfg.connector_type == ConnectorType::Bedrock);
+    fs::remove(path);
+}
+
+TEST(config_connector_unknown_defaults_to_qwen) {
+    std::string path = create_temp_toml("connector = \"something-unknown\"\n");
+    Config cfg = Config::load(path);
+    CHECK(cfg.connector_type == ConnectorType::QwenXml);
+    fs::remove(path);
+}
+
+TEST(config_aws_fields_parsed) {
+    std::string content =
+        "aws_region = \"eu-west-1\"\n"
+        "aws_access_key = \"AKIATEST\"\n"
+        "aws_secret_key = \"secret123\"\n";
+    std::string path = create_temp_toml(content);
+    Config cfg = Config::load(path);
+    CHECK_EQ(cfg.aws_region,     std::string("eu-west-1"));
+    CHECK_EQ(cfg.aws_access_key, std::string("AKIATEST"));
+    CHECK_EQ(cfg.aws_secret_key, std::string("secret123"));
+    fs::remove(path);
+}
+
+TEST(config_aws_env_vars_override) {
+    Config cfg = Config::defaults();
+    setenv("AWS_REGION",            "ap-southeast-1", 1);
+    setenv("AWS_ACCESS_KEY_ID",     "ENVKEY",         1);
+    setenv("AWS_SECRET_ACCESS_KEY", "ENVSECRET",      1);
+    Config::apply_env_overrides(cfg);
+    CHECK_EQ(cfg.aws_region,     std::string("ap-southeast-1"));
+    CHECK_EQ(cfg.aws_access_key, std::string("ENVKEY"));
+    CHECK_EQ(cfg.aws_secret_key, std::string("ENVSECRET"));
+    unsetenv("AWS_REGION");
+    unsetenv("AWS_ACCESS_KEY_ID");
+    unsetenv("AWS_SECRET_ACCESS_KEY");
+}
+
 TEST(config_search_project_local) {
     // Create temp files in temp directory
     std::string tmpdir = fs::temp_directory_path().string();

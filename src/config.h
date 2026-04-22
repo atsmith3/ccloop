@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_set>
+#include "types.h"
 
 struct Permissions {
     bool auto_approve_read   = true;   // read_file, list_dir, search_files, file_info
@@ -34,6 +35,14 @@ struct Config {
 
     // Tool approval permissions
     Permissions permissions;
+
+    // Connector type
+    ConnectorType connector_type = ConnectorType::QwenXml;
+
+    // AWS Bedrock settings (only needed when connector_type == Bedrock)
+    std::string   aws_region     = "us-east-1";
+    std::string   aws_access_key = "";
+    std::string   aws_secret_key = "";
 
     // MCP servers (Phase 2)
     std::vector<McpServerConfig> mcp_servers;

@@ -13,6 +13,11 @@ add_executable(ccl
     src/config.cpp
     src/context.cpp
     src/tools.cpp
+    src/connector.cpp
+    src/connector_base.cpp
+    src/connector_qwen.cpp
+    src/connector_openai.cpp
+    src/connector_bedrock.cpp
     src/llm_client.cpp
     src/agent.cpp
     src/ui.cpp
@@ -33,6 +38,11 @@ add_executable(ccl_test
     src/config.cpp
     src/context.cpp
     src/tools.cpp
+    src/connector.cpp
+    src/connector_base.cpp
+    src/connector_qwen.cpp
+    src/connector_openai.cpp
+    src/connector_bedrock.cpp
     src/llm_client.cpp
 )
 target_include_directories(ccl_test PRIVATE src tests)

@@ -12,6 +12,13 @@ enum class AgentMode {
     Act,
 };
 
+// LLM connector type
+enum class ConnectorType {
+    QwenXml,    // OpenAI completions + XML tool calling in system prompt
+    OpenAiJson, // OpenAI completions + JSON tools array in request
+    Bedrock,    // AWS Bedrock Converse API + SigV4
+};
+
 enum class Approval {
     Accept,
     Reject,

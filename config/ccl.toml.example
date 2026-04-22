@@ -4,6 +4,14 @@ model       = "qwen3-235b"
 timeout_sec = 30
 token_limit = 8000
 
+# Connector type: openai-qwen (default) | openai-json | bedrock
+connector   = "openai-qwen"
+
+# AWS Bedrock settings (only needed when connector = "bedrock")
+# aws_region     = "us-east-1"
+# aws_access_key = ""
+# aws_secret_key = ""
+
 [permissions]                                                                                                                                                                                                                                                            
 read   = true    # auto-approve: read_file, list_dir, search_files, file_info                                                                                                                                                                                            
 write  = true    # auto-approve: write_file, edit_file, create_dir                                                                                                                                                                                                       
