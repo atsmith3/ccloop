@@ -3,7 +3,6 @@
 #include <sstream>
 #include <algorithm>
 #include <atomic>
-#include <set>
 
 static std::string build_tools_prompt(const std::vector<ToolDef>& tools) {
     std::ostringstream ss;
@@ -181,15 +180,12 @@ void Agent::loop() {
     }
 }
 
-bool Agent::requires_approval(const std::string& tool_name) const {
-    static const std::set<std::string> read_tools  = {"read_file", "list_dir", "search_files", "file_info"};
-    static const std::set<std::string> write_tools = {"write_file", "edit_file", "create_dir"};
-
-    if (read_tools.count(tool_name))  return !config_.permissions.auto_approve_read;
-    if (write_tools.count(tool_name)) return !config_.permissions.auto_approve_write;
-    if (tool_name == "delete_file")   return !config_.permissions.auto_approve_delete;
-    if (tool_name == "run_shell")     return !config_.permissions.auto_approve_shell;
-    return true;  // unknown tool: gate by default
+bool Agent::requires_approval(const ToolDef& def) const {
+    if (def.permission == "read")   return !config_.permissions.auto_approve_read;
+    if (def.permission == "write")  return !config_.permissions.auto_approve_write;
+    if (def.permission == "delete") return !config_.permissions.auto_approve_delete;
+    if (def.permission == "shell")  return !config_.permissions.auto_approve_shell;
+    return true;  // unknown permission: gate by default
 }
 
 void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
@@ -199,19 +195,18 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
         ui_.show_tool_call(call, ToolSource::Local);
 
         ToolResult result = [&]() -> ToolResult {
-            // Check approval gate
-            if (requires_approval(call.name)) {
+            auto tool_opt = registry_.find(call.name);
+            if (!tool_opt.has_value()) {
+                return ToolResult::fail("Tool not found: " + call.name);
+            }
+
+            if (requires_approval(tool_opt.value()->def)) {
                 Approval approval = ui_.request_approval(call);
                 if (approval != Approval::Accept) {
                     return ToolResult::fail("rejected by user");
                 }
             }
 
-            // Find and execute tool
-            auto tool_opt = registry_.find(call.name);
-            if (!tool_opt.has_value()) {
-                return ToolResult::fail("Tool not found: " + call.name);
-            }
             return tool_opt.value()->fn(call.args);
         }();
 
@@ -269,15 +264,10 @@ bool Agent::handle_slash_command(std::string_view input) {
     }
 
     if (command == "clear") {
-        // Clear all but system message
-        while (context_.message_count() > 1) {
-            // Rebuild context with just system
-            // For simplicity, recreate
-            ContextManager new_ctx(config_.token_limit);
-            new_ctx.push_system(system_prompt());
-            context_ = new_ctx;
-            break;
-        }
+        ContextManager new_ctx(config_.token_limit);
+        new_ctx.push_system(system_prompt());
+        context_ = std::move(new_ctx);
+        ui_.update_tokens(context_.total_tokens(), config_.token_limit);
         return true;
     }
 

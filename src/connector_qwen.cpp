@@ -151,11 +151,7 @@ LlmResponse QwenConnector::complete(const ContextManager& ctx,
     curl_slist_free_all(headers);
 
     if (result.status != 200) {
-        LlmResponse response;
-        response.is_error = true;
-        response.content = "HTTP " + std::to_string(result.status)
-                         + ": " + result.body.substr(0, 200);
-        return response;
+        return make_http_error(result);
     }
 
     return parse_response_json(result.body);

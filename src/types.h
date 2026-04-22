@@ -38,6 +38,7 @@ struct ToolDef {
     std::string            name;
     std::string            description;
     std::vector<ToolParam> params;
+    std::string            permission;  // "read" | "write" | "delete" | "shell"
 };
 
 // Parsed tool call from LLM response

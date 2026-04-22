@@ -552,6 +552,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
         tool.def.name = "read_file";
         tool.def.description = "Read the contents of a file";
         tool.def.params.push_back({"path", "string", "Path to file", true});
+        tool.def.permission = "read";
         tool.fn = tool_read_file;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
@@ -562,6 +563,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
         tool.def.name = "list_dir";
         tool.def.description = "List files and directories in a directory";
         tool.def.params.push_back({"path", "string", "Path to directory", true});
+        tool.def.permission = "read";
         tool.fn = tool_list_dir;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
@@ -574,6 +576,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
         tool.def.params.push_back({"path", "string", "Root path to search", true});
         tool.def.params.push_back({"pattern", "string", "Regex to search file contents (optional — omit to list files)", false});
         tool.def.params.push_back({"file_glob", "string", "Optional glob filter, e.g. '*.py'", false});
+        tool.def.permission = "read";
         tool.fn = tool_search_files;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
@@ -584,6 +587,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
         tool.def.name = "file_info";
         tool.def.description = "Get metadata about a file or directory";
         tool.def.params.push_back({"path", "string", "Path to file or directory", true});
+        tool.def.permission = "read";
         tool.fn = tool_file_info;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
@@ -597,6 +601,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
             tool.def.description = "Write content to a file (atomic via temporary file)";
             tool.def.params.push_back({"path", "string", "Path to file", true});
             tool.def.params.push_back({"content", "string", "Content to write", true});
+            tool.def.permission = "write";
             tool.fn = tool_write_file;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
@@ -609,6 +614,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
             tool.def.params.push_back({"path",    "string", "Path to file",                    true});
             tool.def.params.push_back({"old_str", "string", "Exact text to replace",           true});
             tool.def.params.push_back({"new_str", "string", "Replacement text",                true});
+            tool.def.permission = "write";
             tool.fn = tool_edit_file;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
@@ -619,6 +625,7 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
             tool.def.name = "create_dir";
             tool.def.description = "Create a directory (creates parent directories as needed)";
             tool.def.params.push_back({"path", "string", "Path to directory", true});
+            tool.def.permission = "write";
             tool.fn = tool_create_dir;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
@@ -629,32 +636,22 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
             tool.def.name = "delete_file";
             tool.def.description = "Delete a file (requires approval)";
             tool.def.params.push_back({"path", "string", "Path to file", true});
+            tool.def.permission = "delete";
             tool.fn = tool_delete_file;
-            tool.source = ToolSource::Local;
-            registry.register_tool(std::move(tool));
-        }
-
-        {
-            Tool tool;
-            tool.def.name = "run_shell";
-            tool.def.description = "Execute a shell command (requires approval)";
-            tool.def.params.push_back({"command", "string", "Shell command to execute", true});
-            tool.def.params.push_back({"cwd", "string", "Working directory (optional)", false});
-            tool.def.params.push_back({"timeout_sec", "integer", "Timeout in seconds (optional, default 30)", false});
-            tool.fn = tool_run_shell;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
         }
     }
 
     // run_shell is available in all modes (read-only exploration, build checks, etc.)
-    if (mode == AgentMode::Plan) {
+    {
         Tool tool;
         tool.def.name = "run_shell";
         tool.def.description = "Execute a shell command (requires approval)";
         tool.def.params.push_back({"command", "string", "Shell command to execute", true});
         tool.def.params.push_back({"cwd", "string", "Working directory (optional)", false});
         tool.def.params.push_back({"timeout_sec", "integer", "Timeout in seconds (optional, default 30)", false});
+        tool.def.permission = "shell";
         tool.fn = tool_run_shell;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
