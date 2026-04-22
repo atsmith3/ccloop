@@ -7,7 +7,7 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 - **Agentic loop:** Agent reads code, formulates plans, executes with approval
 - **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
 - **Tool-use:** Read files, search code, write files atomically, run shell commands
-- **Streaming:** Real-time LLM token output via SSE
+- **Multi-connector:** OpenAI JSON, Qwen XML tool calling, and AWS Bedrock — selected via one config line
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
 - **Supply-chain safe:** Custom minimal TOML/JSON parsers, custom test harness, all from stdlib
 
@@ -78,10 +78,21 @@ cp config/ccl.toml.example ./ccl.toml
 
 Edit `ccl.toml`:
 ```toml
-endpoint = "http://localhost:4000/v1"
-api_key = "sk-..."
-model = "qwen3-235b"
+endpoint    = "http://localhost:4000/v1"
+api_key     = "sk-..."
+model       = "qwen3-235b"
 token_limit = 8000
+
+connector = "openai-qwen"   # openai-qwen | openai-json | bedrock
+```
+
+**AWS Bedrock:**
+```toml
+connector      = "bedrock"
+model          = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+aws_region     = "us-east-1"
+aws_access_key = "AKIA..."
+aws_secret_key = "..."
 ```
 
 Override with environment variables:
@@ -160,8 +171,43 @@ tokens: 1203/8000
 
 **Slash commands:**
 - `/mode plan|act` — switch modes
+- `/clear` — reset context (keeps system prompt)
 - `/help` — show help
 - `/quit` — exit
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│                     main.cpp                         │
+│          CLI args · Config loading · Signals         │
+└───────────────────────────┬──────────────────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────┐
+│                      Agent                           │
+│     plan ↔ act loop  ·  context compaction           │
+│     tool approval    ·  /mode /clear /help           │
+└────────────┬──────────────────────────┬──────────────┘
+             │                          │
+┌────────────▼────────────┐  ┌──────────▼─────────────┐
+│        LlmClient        │  │      ToolRegistry       │
+│   (connector facade)    │  │  read_file  list_dir    │
+└────────────┬────────────┘  │  search_files file_info │
+             │               │  write_file  edit_file  │
+┌────────────▼────────────┐  │  create_dir delete_file │
+│   Connector (factory)   │  │  run_shell              │
+├─────────┬───────┬───────┤  └─────────────────────────┘
+│ QwenXml │OpenAI │Bedrock│
+│ XML tc  │JSON tc│SigV4  │
+└─────────┴───────┴───────┘
+
+─────────────────────────────────────────────────────
+ json · config · context · types · ui
+─────────────────────────────────────────────────────
+```
+
+The connector is selected at startup from `ccl.toml`. All three share the same HTTP retry
+layer (`ConnectorBase`) and tool schema builders — only request format and auth differ.
 
 ## Testing
 
@@ -191,34 +237,38 @@ docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c 
 ```
 
 **Test coverage:**
-- JSON parser (parse, serialize, roundtrip)
+- JSON parser (parse, serialize, roundtrip, edge cases)
 - TOML parser + env var override logic
-- Context manager (message history, compaction)
-- Local tools (file I/O, atomicity, diffs)
-- LLM client (request building, response parsing)
-
-See `TEST_PLAN.md` for details.
+- Context manager (message history, token estimation, compaction)
+- Local tools (file I/O, atomicity, diffs, shell execution)
+- Connector request building + response parsing (Qwen, OpenAI, Bedrock)
 
 ## Project Structure
 
 ```
 ccl/
 ├── CMakeLists.txt
-├── Dockerfile                   -- standardized dev environment
+├── Dockerfile                    -- standardized dev environment
+├── ETHOS.md                      -- project values
 ├── config/
-│   └── ccl.toml.example        -- config template
+│   └── ccl.toml.example         -- config template
 ├── src/
-│   ├── main.cpp                -- CLI parsing, signal handling
-│   ├── types.h                 -- shared types
-│   ├── json.h/cpp              -- JSON parser (recursive descent)
-│   ├── config.h/cpp            -- TOML parser + config loading
-│   ├── context.h/cpp           -- message history + compaction
-│   ├── tools.h/cpp             -- tool registry + implementations
-│   ├── llm_client.h/cpp        -- HTTP client + streaming
-│   ├── agent.h/cpp             -- core agent loop
-│   └── ui.h/cpp                -- terminal UI
+│   ├── main.cpp                 -- CLI parsing, signal handling
+│   ├── types.h                  -- shared types (ToolDef, LlmResponse, etc.)
+│   ├── json.h/cpp               -- JSON parser (recursive descent)
+│   ├── config.h/cpp             -- TOML parser + config loading
+│   ├── context.h/cpp            -- message history + token compaction
+│   ├── tools.h/cpp              -- tool registry + all tool implementations
+│   ├── connector.h/cpp          -- Connector interface + factory
+│   ├── connector_base.h/cpp     -- shared HTTP/retry layer
+│   ├── connector_qwen.h/cpp     -- OpenAI endpoint + XML tool calling
+│   ├── connector_openai.h/cpp   -- OpenAI endpoint + JSON tool calling
+│   ├── connector_bedrock.h/cpp  -- AWS Bedrock Converse API + SigV4
+│   ├── llm_client.h/cpp         -- thin facade over Connector
+│   ├── agent.h/cpp              -- core agent loop (plan/act modes)
+│   └── ui.h/cpp                 -- terminal UI
 └── tests/
-    ├── harness.h               -- custom test harness
+    ├── harness.h                -- custom test harness
     ├── main.cpp
     ├── test_json.cpp
     ├── test_config.cpp
@@ -231,15 +281,13 @@ ccl/
 
 1. **Minimal dependencies:** Only libcurl at runtime. Build uses system cmake/compiler.
 2. **Supply-chain safety:** All parsing (JSON, TOML) written from scratch. Custom test harness — no Boost, Google Test, or Catch2.
-3. **Explicit layers:** Clear separation: UI → Agent Loop → LLM Client + Tool Registry → Utilities (JSON, TOML, Context).
+3. **Explicit layers:** `UI → Agent → LlmClient → Connector (Qwen/OpenAI/Bedrock) + ToolRegistry → Utilities (json, config, context)`
 4. **Terminal-friendly:** Pure text I/O. No fancy UI framework. Natural scrolling terminal. ASCII only.
-5. **Testability:** All core components unit-tested. Agent and UI are integration layers tested manually.
+5. **Testability:** All core components unit-tested. Static helper methods on connectors make request/response logic testable without network access.
 
 ## Documentation
 
-- `PLAN.md` — architecture, design decisions, development roadmap
-- `TEST_PLAN.md` — unit testing strategy, test harness design, test cases
-- Dockerfile comments — build environment rationale
+- `ETHOS.md` — project values and philosophy
 
 ## License
 
