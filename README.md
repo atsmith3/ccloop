@@ -108,22 +108,28 @@ Create `mcp.json` (see `config/mcp.json.example`):
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:3001",
+      "url": "http://localhost:3001/mcp",
       "writeTools": ["write_file", "create_directory"]
     },
     "github": {
-      "url": "http://localhost:3002",
+      "url": "http://localhost:3002/mcp",
       "apiKey": "ghp_..."
     }
   }
 }
 ```
 
-- `url` — MCP server endpoint (streamable HTTP / SSE transport)
+- `url` — MCP server's streamable HTTP endpoint (MCP spec 2024-11-05+)
 - `apiKey` — optional Bearer token
 - `writeTools` — tool names that require `write` approval (all others default to `read`)
 
 MCP tools are discovered at startup via `tools/list` and registered alongside built-in tools. They show as `(mcp)` in the tool call display.
+
+**Server requirements:** ccl uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2024-11-05/basic/transports/#streamable-http) only. The older SSE transport is not supported. For the Python MCP SDK (`mcp >= 1.0`):
+```python
+mcp.run(transport="streamable-http", host="127.0.0.1", port=8300)
+# url in mcp.json: "http://127.0.0.1:8300/mcp"
+```
 
 Override with environment variables:
 ```bash
