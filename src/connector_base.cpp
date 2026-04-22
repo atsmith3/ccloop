@@ -1,5 +1,6 @@
 #include "connector_base.h"
 #include <chrono>
+#include <sstream>
 #include <thread>
 #include <iostream>
 
@@ -65,4 +66,49 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
     }
 
     return {500, "Max retries exceeded"};
+}
+
+std::string ConnectorBase::build_tool_params_json(const std::vector<ToolParam>& params) {
+    std::ostringstream props;
+    std::ostringstream required;
+    bool first_prop = true;
+    bool first_req  = true;
+
+    for (const auto& p : params) {
+        if (!first_prop) props << ",";
+        props << "\"" << escape_json(p.name) << "\":"
+              << "{\"type\":\"" << escape_json(p.type) << "\""
+              << ",\"description\":\"" << escape_json(p.description) << "\"}";
+        first_prop = false;
+
+        if (p.required) {
+            if (!first_req) required << ",";
+            required << "\"" << escape_json(p.name) << "\"";
+            first_req = false;
+        }
+    }
+
+    std::ostringstream ss;
+    ss << "{\"type\":\"object\",\"properties\":{" << props.str() << "}";
+    if (!first_req) {
+        ss << ",\"required\":[" << required.str() << "]";
+    }
+    ss << "}";
+    return ss.str();
+}
+
+ToolArgs ConnectorBase::json_obj_to_args(const JsonObject& obj) {
+    ToolArgs args;
+    for (const auto& [k, v] : obj) {
+        args[k] = *v;
+    }
+    return args;
+}
+
+LlmResponse ConnectorBase::make_http_error(const HttpResult& result) {
+    LlmResponse response;
+    response.is_error = true;
+    response.content  = "HTTP " + std::to_string(result.status)
+                      + ": " + result.body.substr(0, 200);
+    return response;
 }

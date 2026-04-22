@@ -4,6 +4,7 @@
 #include <curl/curl.h>
 #include "connector.h"
 #include "config.h"
+#include "json.h"
 
 class ConnectorBase : public Connector {
 public:
@@ -23,6 +24,11 @@ protected:
     HttpResult http_post(const std::string& url,
                          const std::string& body,
                          struct curl_slist* headers);
+
+    // Shared helpers for subclass request builders and response parsers
+    static std::string build_tool_params_json(const std::vector<ToolParam>& params);
+    static ToolArgs     json_obj_to_args(const JsonObject& obj);
+    static LlmResponse  make_http_error(const HttpResult& result);
 
 private:
     static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
