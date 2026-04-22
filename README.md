@@ -7,6 +7,7 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 - **Agentic loop:** Agent reads code, formulates plans, executes with approval
 - **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
 - **Tool-use:** Read files, search code, write files atomically, run shell commands
+- **MCP tools:** Connect to any MCP server over SSE/HTTP — tools appear alongside built-in tools
 - **Multi-connector:** OpenAI JSON, Qwen XML tool calling, and AWS Bedrock — selected via one config line
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
 - **Supply-chain safe:** Custom minimal TOML/JSON parsers, custom test harness, all from stdlib
@@ -95,10 +96,40 @@ aws_access_key = "AKIA..."
 aws_secret_key = "..."
 ```
 
+**MCP Tools:**
+
+Add MCP servers by pointing `ccl.toml` at a JSON config file:
+```toml
+mcp_config = "~/.config/ccl/mcp.json"
+```
+
+Create `mcp.json` (see `config/mcp.json.example`):
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "url": "http://localhost:3001",
+      "writeTools": ["write_file", "create_directory"]
+    },
+    "github": {
+      "url": "http://localhost:3002",
+      "apiKey": "ghp_..."
+    }
+  }
+}
+```
+
+- `url` — MCP server endpoint (streamable HTTP / SSE transport)
+- `apiKey` — optional Bearer token
+- `writeTools` — tool names that require `write` approval (all others default to `read`)
+
+MCP tools are discovered at startup via `tools/list` and registered alongside built-in tools. They show as `(mcp)` in the tool call display.
+
 Override with environment variables:
 ```bash
 export CCL_API_KEY="sk-..."
 export CCL_ENDPOINT="http://localhost:4000/v1"
+export CCL_MCP_CONFIG="~/.config/ccl/mcp.json"
 ccl
 ```
 
@@ -191,14 +222,14 @@ tokens: 1203/8000
              │                          │
 ┌────────────▼────────────┐  ┌──────────▼─────────────┐
 │        LlmClient        │  │      ToolRegistry       │
-│   (connector facade)    │  │  read_file  list_dir    │
-└────────────┬────────────┘  │  search_files file_info │
-             │               │  write_file  edit_file  │
-┌────────────▼────────────┐  │  create_dir delete_file │
-│   Connector (factory)   │  │  run_shell              │
-├─────────┬───────┬───────┤  └─────────────────────────┘
-│ QwenXml │OpenAI │Bedrock│
-│ XML tc  │JSON tc│SigV4  │
+│   (connector facade)    │  │  local tools            │
+└────────────┬────────────┘  │  + MCP tools (dynamic) │
+             │               └──────────┬──────────────┘
+┌────────────▼────────────┐             │
+│   Connector (factory)   │  ┌──────────▼──────────────┐
+├─────────┬───────┬───────┤  │      McpClient(s)       │
+│ QwenXml │OpenAI │Bedrock│  │  JSON-RPC · SSE/HTTP    │
+│ XML tc  │JSON tc│SigV4  │  └─────────────────────────┘
 └─────────┴───────┴───────┘
 
 ─────────────────────────────────────────────────────
@@ -206,8 +237,8 @@ tokens: 1203/8000
 ─────────────────────────────────────────────────────
 ```
 
-The connector is selected at startup from `ccl.toml`. All three share the same HTTP retry
-layer (`ConnectorBase`) and tool schema builders — only request format and auth differ.
+The LLM connector is selected at startup from `ccl.toml`. MCP servers are loaded from the
+optional `mcp_config` JSON file — one `McpClient` per server, tools registered at startup.
 
 ## Testing
 
@@ -242,6 +273,7 @@ docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c 
 - Context manager (message history, token estimation, compaction)
 - Local tools (file I/O, atomicity, diffs, shell execution)
 - Connector request building + response parsing (Qwen, OpenAI, Bedrock)
+- MCP client JSON-RPC building and SSE/HTTP response parsing
 
 ## Project Structure
 
@@ -251,7 +283,8 @@ ccl/
 ├── Dockerfile                    -- standardized dev environment
 ├── ETHOS.md                      -- project values
 ├── config/
-│   └── ccl.toml.example         -- config template
+│   ├── ccl.toml.example         -- config template
+│   └── mcp.json.example         -- MCP servers config template
 ├── src/
 │   ├── main.cpp                 -- CLI parsing, signal handling
 │   ├── types.h                  -- shared types (ToolDef, LlmResponse, etc.)
@@ -259,6 +292,7 @@ ccl/
 │   ├── config.h/cpp             -- TOML parser + config loading
 │   ├── context.h/cpp            -- message history + token compaction
 │   ├── tools.h/cpp              -- tool registry + all tool implementations
+│   ├── mcp_client.h/cpp         -- MCP client (JSON-RPC over SSE/HTTP)
 │   ├── connector.h/cpp          -- Connector interface + factory
 │   ├── connector_base.h/cpp     -- shared HTTP/retry layer
 │   ├── connector_qwen.h/cpp     -- OpenAI endpoint + XML tool calling
@@ -274,7 +308,8 @@ ccl/
     ├── test_config.cpp
     ├── test_context.cpp
     ├── test_tools.cpp
-    └── test_llm_client.cpp
+    ├── test_llm_client.cpp
+    └── test_mcp_client.cpp
 ```
 
 ## Design Principles

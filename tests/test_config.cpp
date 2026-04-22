@@ -311,3 +311,125 @@ TEST(config_search_project_local) {
     fs::remove(global_config);
     fs::remove(local_config);
 }
+
+// ============================================================================
+// MCP config loading
+// ============================================================================
+
+static std::string create_temp_json(const std::string& content) {
+    std::string tmpdir = fs::temp_directory_path().string();
+    std::string path = tmpdir + "/test_mcp_" + std::to_string(std::rand()) + ".json";
+    std::ofstream f(path);
+    f << content;
+    f.close();
+    return path;
+}
+
+TEST(config_mcp_config_key_parsed_from_toml) {
+    std::string json_path = create_temp_json(R"({"mcpServers":{}})");
+    std::string toml = "mcp_config = \"" + json_path + "\"\n";
+    std::string toml_path = create_temp_toml(toml);
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_config, json_path);
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_single_server_loaded) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "myserver": {"url": "http://localhost:3001"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK_EQ(cfg.mcp_servers[0].name, std::string("myserver"));
+    CHECK_EQ(cfg.mcp_servers[0].url, std::string("http://localhost:3001"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_server_api_key_loaded) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "s": {"url": "http://localhost:3001", "apiKey": "tok123"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers[0].api_key, std::string("tok123"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_server_write_tools_loaded) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "s": {"url": "http://localhost:3001", "writeTools": ["write_file", "delete_file"]}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK(cfg.mcp_servers[0].write_tools.count("write_file") > 0);
+    CHECK(cfg.mcp_servers[0].write_tools.count("delete_file") > 0);
+    CHECK(cfg.mcp_servers[0].write_tools.count("read_file") == 0);
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_multiple_servers_loaded) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "a": {"url": "http://localhost:3001"},
+            "b": {"url": "http://localhost:3002"},
+            "c": {"url": "http://localhost:3003"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(3));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_server_without_url_skipped) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "no_url": {"apiKey": "key"},
+            "has_url": {"url": "http://localhost:3001"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK_EQ(cfg.mcp_servers[0].name, std::string("has_url"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_nonexistent_file_silently_ignored) {
+    std::string toml_path = create_temp_toml("mcp_config = \"/nonexistent/mcp.json\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_config, std::string("/nonexistent/mcp.json"));  // field is set
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(0));                     // but nothing loaded
+    fs::remove(toml_path);
+}
+
+TEST(config_mcp_invalid_json_silently_ignored) {
+    std::string json_path = create_temp_json("this is not json at all");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(0));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_env_var_sets_mcp_config) {
+    Config cfg = Config::defaults();
+    CHECK(cfg.mcp_config.empty());
+    setenv("CCL_MCP_CONFIG", "/tmp/test_mcp.json", 1);
+    Config::apply_env_overrides(cfg);
+    CHECK_EQ(cfg.mcp_config, std::string("/tmp/test_mcp.json"));
+    unsetenv("CCL_MCP_CONFIG");
+}

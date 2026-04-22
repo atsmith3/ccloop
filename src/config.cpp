@@ -1,10 +1,12 @@
 #include "config.h"
+#include "json.h"
 #include <fstream>
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -108,7 +110,46 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.aws_access_key = parse_string_value(value);
         } else if (key == "aws_secret_key") {
             cfg.aws_secret_key = parse_string_value(value);
+        } else if (key == "mcp_config") {
+            cfg.mcp_config = parse_string_value(value);
         }
+    }
+}
+
+// Parse MCP servers from a JSON config file (mcpServers object format)
+static void load_mcp_config(const std::string& path, Config& cfg) {
+    std::ifstream file(path);
+    if (!file) return;
+
+    std::ostringstream ss;
+    ss << file.rdbuf();
+
+    JsonValue root = parse_json(ss.str());
+
+    auto servers_v = root.get("mcpServers");
+    if (!servers_v || !servers_v->is_object()) return;
+
+    for (const auto& [name, server_val] : servers_v->as_object()) {
+        if (!server_val) continue;
+
+        McpServerConfig srv;
+        srv.name = name;
+
+        auto url_v = server_val->get("url");
+        if (!url_v || !url_v->is_string()) continue;  // url is required
+        srv.url = url_v->as_string();
+
+        auto key_v = server_val->get("apiKey");
+        if (key_v && key_v->is_string()) srv.api_key = key_v->as_string();
+
+        auto wt_v = server_val->get("writeTools");
+        if (wt_v && wt_v->is_array()) {
+            for (const auto& wt : wt_v->as_array()) {
+                if (wt && wt->is_string()) srv.write_tools.insert(wt->as_string());
+            }
+        }
+
+        cfg.mcp_servers.push_back(std::move(srv));
     }
 }
 
@@ -147,6 +188,18 @@ Config Config::load(const std::string& explicit_path) {
         }
     }
 
+    // Load MCP server config from JSON file if specified
+    if (!cfg.mcp_config.empty()) {
+        std::string mcp_path = expand_home(cfg.mcp_config);
+        if (fs::exists(mcp_path)) {
+            try {
+                load_mcp_config(mcp_path, cfg);
+            } catch (...) {
+                // Fail silently
+            }
+        }
+    }
+
     return cfg;
 }
 
@@ -165,6 +218,9 @@ void Config::apply_env_overrides(Config& cfg) {
             // Ignore invalid timeout
         }
     }
+
+    const char* mcp_config = std::getenv("CCL_MCP_CONFIG");
+    if (mcp_config) cfg.mcp_config = mcp_config;
 
     const char* aws_region = std::getenv("AWS_REGION");
     if (aws_region) cfg.aws_region = aws_region;
