@@ -192,10 +192,11 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
     std::string combined;
 
     for (const auto& call : calls) {
-        ui_.show_tool_call(call, ToolSource::Local);
+        auto tool_opt = registry_.find(call.name);
+        ToolSource src = (tool_opt.has_value()) ? tool_opt.value()->source : ToolSource::Local;
+        ui_.show_tool_call(call, src);
 
         ToolResult result = [&]() -> ToolResult {
-            auto tool_opt = registry_.find(call.name);
             if (!tool_opt.has_value()) {
                 return ToolResult::fail("Tool not found: " + call.name);
             }

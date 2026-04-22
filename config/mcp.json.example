@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "url": "http://localhost:3001",
+      "writeTools": ["write_file", "create_directory", "move_file", "delete_file"]
+    },
+    "github": {
+      "url": "http://localhost:3002",
+      "apiKey": "ghp_your_token_here"
+    }
+  }
+}

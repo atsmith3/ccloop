@@ -1,5 +1,7 @@
 #include "tools.h"
+#include "mcp_client.h"
 #include <fstream>
+#include <iostream>
 #include <filesystem>
 #include <fnmatch.h>
 #include <regex>
@@ -543,7 +545,7 @@ ToolResult tool_run_shell(const ToolArgs& args) {
 // Registry factory
 // ============================================================================
 
-ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
+ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
     ToolRegistry registry;
 
     // Read-only tools: always registered
@@ -655,6 +657,26 @@ ToolRegistry make_registry(AgentMode mode, const Config& /*cfg*/) {
         tool.fn = tool_run_shell;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
+    }
+
+    // Register MCP tools from configured servers
+    for (const auto& server_cfg : cfg.mcp_servers) {
+        auto client = std::make_shared<McpClient>(server_cfg, cfg);
+        if (!client->initialize()) {
+            std::cerr << "[mcp] warning: could not connect to '" << server_cfg.name << "'\n";
+            continue;
+        }
+        for (auto def : client->list_tools()) {
+            def.permission = server_cfg.write_tools.count(def.name) ? "write" : "read";
+            Tool tool;
+            tool.def       = def;
+            tool.source    = ToolSource::Mcp;
+            tool.mcp_server = server_cfg.name;
+            tool.fn = [client, name = def.name](const ToolArgs& args) {
+                return client->call_tool(name, args);
+            };
+            registry.register_tool(std::move(tool));
+        }
     }
 
     return registry;

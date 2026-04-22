@@ -13,6 +13,7 @@ add_executable(ccl
     src/config.cpp
     src/context.cpp
     src/tools.cpp
+    src/mcp_client.cpp
     src/connector.cpp
     src/connector_base.cpp
     src/connector_qwen.cpp
@@ -34,10 +35,12 @@ add_executable(ccl_test
     tests/test_context.cpp
     tests/test_tools.cpp
     tests/test_llm_client.cpp
+    tests/test_mcp_client.cpp
     src/json.cpp
     src/config.cpp
     src/context.cpp
     src/tools.cpp
+    src/mcp_client.cpp
     src/connector.cpp
     src/connector_base.cpp
     src/connector_qwen.cpp

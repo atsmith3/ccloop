@@ -14,9 +14,9 @@ struct Permissions {
 
 struct McpServerConfig {
     std::string name;
-    std::string command;
-    std::string url;
-    std::unordered_set<std::string> write_tools;
+    std::string url;                                    // SSE/HTTP endpoint
+    std::string api_key;                                // optional Bearer auth
+    std::unordered_set<std::string> write_tools;        // tools that require write approval
 };
 
 struct Config {
@@ -44,7 +44,10 @@ struct Config {
     std::string   aws_access_key = "";
     std::string   aws_secret_key = "";
 
-    // MCP servers (Phase 2)
+    // MCP config file path (JSON, optional)
+    std::string mcp_config = "";
+
+    // MCP servers (populated from mcp_config JSON file)
     std::vector<McpServerConfig> mcp_servers;
 
     static Config defaults();
