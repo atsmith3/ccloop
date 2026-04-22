@@ -1,5 +1,7 @@
 #include "harness.h"
 #include "../src/json.h"
+#include <cmath>
+#include <limits>
 
 // ============================================================================
 // Parsing tests
@@ -178,4 +180,55 @@ TEST(json_escape_special_chars) {
     std::string escaped = escape_json("hello\nworld\t\"quoted\"\\backslash");
     std::string expected = "hello\\nworld\\t\\\"quoted\\\"\\\\backslash";
     CHECK_EQ(escaped, expected);
+}
+
+// ============================================================================
+// Number edge cases
+// ============================================================================
+
+TEST(json_parse_scientific_notation) {
+    JsonValue v = parse_json("1.5e10");
+    CHECK(v.is_number());
+    CHECK(std::abs(v.as_number() - 1.5e10) < 1e5);
+}
+
+TEST(json_parse_negative_exponent) {
+    JsonValue v = parse_json("1.5e-3");
+    CHECK(v.is_number());
+    CHECK(std::abs(v.as_number() - 1.5e-3) < 1e-10);
+}
+
+TEST(json_to_json_nan_is_null) {
+    JsonValue v;
+    v.data = std::numeric_limits<double>::quiet_NaN();
+    CHECK_EQ(to_json(v), std::string("null"));
+}
+
+TEST(json_to_json_infinity_is_null) {
+    JsonValue v;
+    v.data = std::numeric_limits<double>::infinity();
+    CHECK_EQ(to_json(v), std::string("null"));
+}
+
+// ============================================================================
+// Escape / input edge cases
+// ============================================================================
+
+TEST(json_escape_empty_string) {
+    CHECK_EQ(escape_json(""), std::string(""));
+}
+
+TEST(json_escape_control_characters) {
+    std::string escaped = escape_json("\x01\x1f");
+    CHECK_EQ(escaped, std::string("\\u0001\\u001f"));
+}
+
+TEST(json_parse_whitespace_around_value) {
+    JsonValue v = parse_json("  42  ");
+    CHECK(v.is_number());
+    CHECK_EQ(v.as_number(), 42.0);
+}
+
+TEST(json_parse_empty_input_throws) {
+    CHECK_THROWS(parse_json(""));
 }

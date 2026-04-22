@@ -696,3 +696,130 @@ TEST(tool_result_to_context_string_fail) {
     CHECK(s.find("[ERROR]") != std::string::npos);
     CHECK(s.find("something went wrong") != std::string::npos);
 }
+
+// ============================================================================
+// Additional edge case tests
+// ============================================================================
+
+TEST(tool_search_files_invalid_regex) {
+    TmpDir tmp;
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(tmp.path);
+    args["pattern"].data.emplace<std::string>("[unclosed");
+
+    ToolResult result = tool_search_files(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("invalid pattern") != std::string::npos);
+}
+
+TEST(tool_search_files_output_truncated) {
+    TmpDir tmp;
+    std::string filepath = tmp.path + "/bigfile.txt";
+    {
+        std::ofstream f(filepath);
+        // 100 lines × ~90 chars each ≈ 9000 bytes — exceeds the 8000-byte cap
+        for (int i = 0; i < 100; ++i) {
+            f << "FINDME " << std::string(80, 'x') << " line" << i << "\n";
+        }
+    }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(tmp.path);
+    args["pattern"].data.emplace<std::string>("FINDME");
+
+    ToolResult result = tool_search_files(args);
+    CHECK(result.success);
+    CHECK(result.content.find("truncated") != std::string::npos);
+}
+
+TEST(tool_edit_file_multiline_old_str) {
+    TmpDir tmp;
+    std::string path = tmp.path + "/multi.txt";
+    {
+        std::ofstream f(path);
+        f << "line1\nline2\nline3\n";
+    }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(path);
+    args["old_str"].data.emplace<std::string>("line1\nline2");
+    args["new_str"].data.emplace<std::string>("REPLACED");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(result.success);
+
+    std::ifstream f(path);
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    CHECK(content.find("REPLACED") != std::string::npos);
+    CHECK(content.find("line1") == std::string::npos);
+    CHECK(content.find("line3") != std::string::npos);
+}
+
+TEST(tool_edit_file_empty_old_str_ambiguous) {
+    TmpDir tmp;
+    std::string path = tmp.path + "/file.txt";
+    {
+        std::ofstream f(path);
+        f << "hello world\n";
+    }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(path);
+    args["old_str"].data.emplace<std::string>("");
+    args["new_str"].data.emplace<std::string>("X");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("ambiguous") != std::string::npos);
+}
+
+TEST(tool_edit_file_new_str_equals_old_str) {
+    TmpDir tmp;
+    std::string path = tmp.path + "/file.txt";
+    {
+        std::ofstream f(path);
+        f << "unchanged content\n";
+    }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(path);
+    args["old_str"].data.emplace<std::string>("unchanged content");
+    args["new_str"].data.emplace<std::string>("unchanged content");
+
+    ToolResult result = tool_edit_file(args);
+    CHECK(result.success);
+
+    std::ifstream f(path);
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    CHECK(content.find("unchanged content") != std::string::npos);
+}
+
+TEST(tool_create_dir_file_exists_error) {
+    TmpDir tmp;
+    std::string path = tmp.path + "/notadir";
+    {
+        std::ofstream f(path);
+        f << "I am a file\n";
+    }
+
+    ToolArgs args;
+    args["path"].data.emplace<std::string>(path);
+    ToolResult result = tool_create_dir(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("not a directory") != std::string::npos);
+}
+
+TEST(tool_run_shell_inherits_env) {
+    setenv("CCL_TEST_SENTINEL", "hello_sentinel_456", 1);
+
+    ToolArgs args;
+    args["command"].data.emplace<std::string>("echo $CCL_TEST_SENTINEL");
+    ToolResult result = tool_run_shell(args);
+
+    unsetenv("CCL_TEST_SENTINEL");
+
+    CHECK(result.success);
+    CHECK(result.content.find("hello_sentinel_456") != std::string::npos);
+}
