@@ -31,9 +31,11 @@ private:
     void send_notification(const std::string& method);
 
     static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
+    static size_t header_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
 
     McpServerConfig server_;
     Config          cfg_;
     CURL*           curl_ = nullptr;
     int             next_id_ = 1;
+    std::string     session_id_;
 };

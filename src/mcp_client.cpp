@@ -53,9 +53,27 @@ JsonValue McpClient::parse_sse_or_json(const std::string& body, const std::strin
     try { return parse_json(body); } catch (...) { return JsonValue{}; }
 }
 
+// Parse response headers looking for Mcp-Session-Id. Stores value in *userdata (std::string*).
+size_t McpClient::header_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    size_t len = size * nmemb;
+    std::string line(ptr, len);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+    const std::string prefix = "mcp-session-id:";
+    std::string lower = line;
+    for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    if (lower.size() >= prefix.size() && lower.substr(0, prefix.size()) == prefix) {
+        std::string val = line.substr(prefix.size());
+        size_t start = val.find_first_not_of(" \t");
+        if (start != std::string::npos) val = val.substr(start);
+        *static_cast<std::string*>(userdata) = val;
+    }
+    return len;
+}
+
 // POST a JSON-RPC request. Returns the "result" value on success, nullopt on error.
 std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const JsonValue& params) {
     if (!curl_) return std::nullopt;
+    curl_easy_reset(curl_);
 
     int id = next_id_++;
     std::string body = build_rpc(id, method, params);
@@ -64,21 +82,29 @@ std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const Js
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
+    if (!session_id_.empty()) {
+        std::string sid = "Mcp-Session-Id: " + session_id_;
+        headers = curl_slist_append(headers, sid.c_str());
+    }
     if (!server_.api_key.empty()) {
         std::string auth = "Authorization: Bearer " + server_.api_key;
         headers = curl_slist_append(headers, auth.c_str());
     }
 
-    curl_easy_setopt(curl_, CURLOPT_URL,           server_.url.c_str());
-    curl_easy_setopt(curl_, CURLOPT_POSTFIELDS,     body.c_str());
-    curl_easy_setopt(curl_, CURLOPT_POSTFIELDSIZE,  static_cast<long>(body.size()));
-    curl_easy_setopt(curl_, CURLOPT_HTTPHEADER,     headers);
-    curl_easy_setopt(curl_, CURLOPT_WRITEFUNCTION,  write_callback);
-    curl_easy_setopt(curl_, CURLOPT_WRITEDATA,      static_cast<void*>(&response_body));
-    curl_easy_setopt(curl_, CURLOPT_TIMEOUT,        static_cast<long>(cfg_.timeout_sec));
+    std::string captured_session_id;
+    curl_easy_setopt(curl_, CURLOPT_URL,            server_.url.c_str());
+    curl_easy_setopt(curl_, CURLOPT_POSTFIELDS,      body.c_str());
+    curl_easy_setopt(curl_, CURLOPT_POSTFIELDSIZE,   static_cast<long>(body.size()));
+    curl_easy_setopt(curl_, CURLOPT_HTTPHEADER,      headers);
+    curl_easy_setopt(curl_, CURLOPT_WRITEFUNCTION,   write_callback);
+    curl_easy_setopt(curl_, CURLOPT_WRITEDATA,       static_cast<void*>(&response_body));
+    curl_easy_setopt(curl_, CURLOPT_HEADERFUNCTION,  header_callback);
+    curl_easy_setopt(curl_, CURLOPT_HEADERDATA,      static_cast<void*>(&captured_session_id));
+    curl_easy_setopt(curl_, CURLOPT_TIMEOUT,         static_cast<long>(cfg_.timeout_sec));
 
     CURLcode res = curl_easy_perform(curl_);
     curl_slist_free_all(headers);
+    if (!captured_session_id.empty()) session_id_ = captured_session_id;
 
     if (res != CURLE_OK) {
         if (cfg_.debug) {
@@ -126,12 +152,18 @@ std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const Js
 // POST a notification (no id, no response expected).
 void McpClient::send_notification(const std::string& method) {
     if (!curl_) return;
+    curl_easy_reset(curl_);
 
     std::string body = build_notification(method);
     std::string response_body;
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
+    if (!session_id_.empty()) {
+        std::string sid = "Mcp-Session-Id: " + session_id_;
+        headers = curl_slist_append(headers, sid.c_str());
+    }
     if (!server_.api_key.empty()) {
         std::string auth = "Authorization: Bearer " + server_.api_key;
         headers = curl_slist_append(headers, auth.c_str());
