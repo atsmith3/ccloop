@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "agent.h"
 #include "json.h"
 #include <iostream>
 
@@ -69,15 +70,21 @@ Approval Ui::request_approval(const ToolCall& call) {
     std::cout.flush();
 
     while (true) {
+        if (should_interrupt.load()) {
+            std::cout << "\n";
+            return Approval::Reject;
+        }
         std::string line;
         if (!std::getline(std::cin, line)) {
+            std::cin.clear();
             std::cout << "\n";
-            return Approval::Reject;  // EOF
+            return Approval::Reject;  // EOF or EINTR
         }
         // Trim \r (Windows-style line endings)
         while (!line.empty() && line.back() == '\r') line.pop_back();
 
         if (line.empty()) {
+            if (should_interrupt.load()) return Approval::Reject;
             std::cout << "[y/n]: ";
             std::cout.flush();
             continue;
@@ -95,7 +102,10 @@ std::string Ui::wait_for_input() {
     std::cout.flush();
 
     std::string line;
-    std::getline(std::cin, line);
+    if (!std::getline(std::cin, line)) {
+        std::cin.clear();  // reset failbit set by EINTR or EOF
+        return "";
+    }
 
     // Trim trailing whitespace
     while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r')) {

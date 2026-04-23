@@ -5,9 +5,11 @@
 #include "agent.h"
 #include "ui.h"
 
-std::atomic<bool> should_exit{false};
+static void sigint_handler(int) {
+    should_interrupt = true;
+}
 
-static void signal_handler(int) {
+static void sigterm_handler(int) {
     should_exit = true;
 }
 
@@ -81,9 +83,19 @@ int main(int argc, char* argv[]) {
         loaded_config.permissions.auto_approve_delete = true;
         loaded_config.permissions.auto_approve_shell  = true;
     }
-    // Register signal handlers
-    std::signal(SIGINT, signal_handler);
-    std::signal(SIGTERM, signal_handler);
+    // Register signal handlers: SIGINT cancels the current task (interrupt-to-prompt),
+    // SIGTERM exits cleanly. SA_INTERRUPT ensures SIGINT breaks blocking syscalls.
+    struct sigaction sa_int{};
+    sa_int.sa_handler = sigint_handler;
+    sigemptyset(&sa_int.sa_mask);
+    sa_int.sa_flags = SA_INTERRUPT;  // do NOT restart interrupted syscalls
+    sigaction(SIGINT, &sa_int, nullptr);
+
+    struct sigaction sa_term{};
+    sa_term.sa_handler = sigterm_handler;
+    sigemptyset(&sa_term.sa_mask);
+    sa_term.sa_flags = SA_RESTART;
+    sigaction(SIGTERM, &sa_term, nullptr);
 
     // Run agent
     Ui ui;

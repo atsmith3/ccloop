@@ -8,6 +8,7 @@
 #include "ui.h"
 
 extern std::atomic<bool> should_exit;
+extern std::atomic<bool> should_interrupt;
 
 class Agent {
 public:

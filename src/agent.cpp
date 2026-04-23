@@ -130,13 +130,18 @@ void Agent::loop() {
         }
 
         if (input.empty()) {
+            if (should_interrupt.load()) {
+                should_interrupt = false;
+                std::cout << "\n[Interrupted] Type /quit to exit.\n> ";
+                std::cout.flush();
+            }
             continue;
         }
 
         context_.push_user(input);
 
         // Main interaction loop: keep calling LLM until we get text response
-        while (!should_exit.load()) {
+        while (!should_exit.load() && !should_interrupt.load()) {
             if (context_.needs_compaction()) {
                 context_.compact();
             }
@@ -144,9 +149,11 @@ void Agent::loop() {
             LlmResponse response = llm_.complete(context_, registry_.definitions());
 
             if (response.is_error) {
-                // Error response: show to user but don't add to context or sync tokens
-                ui_.show_error("[ERROR] " + response.content);
-                ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                // Suppress curl-abort errors that result from Ctrl+C interruption
+                if (!should_interrupt.load()) {
+                    ui_.show_error("[ERROR] " + response.content);
+                    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                }
                 break;  // Exit inner loop, wait for next user input
             }
 
@@ -170,7 +177,8 @@ void Agent::loop() {
                 context_.push_assistant(response.content);
                 ui_.show_message("agent", response.content);
                 // Act mode: auto-continue until the model signals completion or a roadblock
-                if (mode_ == AgentMode::Act && !is_act_terminal(response.content)) {
+                if (mode_ == AgentMode::Act && !is_act_terminal(response.content)
+                        && !should_interrupt.load()) {
                     context_.push_user("Continue.");
                     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
                     continue;
@@ -181,6 +189,14 @@ void Agent::loop() {
             }
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
+        }
+
+        // Handle Ctrl+C: reset flag and return to prompt
+        if (should_interrupt.load()) {
+            should_interrupt = false;
+            std::cout << "\n[Interrupted] Task cancelled. Type /quit to exit.\n";
+            std::cout.flush();
+            continue;
         }
 
         if (non_interactive_) {

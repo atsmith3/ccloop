@@ -1,8 +1,13 @@
 #include "connector_base.h"
+#include "agent.h"
 #include <chrono>
 #include <sstream>
 #include <thread>
 #include <iostream>
+
+static int interrupt_progress_cb(void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    return should_interrupt.load() ? 1 : 0;
+}
 
 ConnectorBase::ConnectorBase(const Config& cfg)
     : cfg_(cfg), curl_(curl_easy_init()) {}
@@ -35,6 +40,8 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
     curl_easy_setopt(curl_, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl_, CURLOPT_WRITEDATA, static_cast<void*>(&response_body));
     curl_easy_setopt(curl_, CURLOPT_TIMEOUT, static_cast<long>(cfg_.timeout_sec));
+    curl_easy_setopt(curl_, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl_, CURLOPT_XFERINFOFUNCTION, interrupt_progress_cb);
 
     int sleep_ms[] = {1000, 2000, 4000};
     int retry_count = 0;
@@ -58,7 +65,7 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
             return {static_cast<int>(http_code), response_body};
         }
 
-        if (retry_count < cfg_.max_retries) {
+        if (retry_count < cfg_.max_retries && !should_interrupt.load()) {
             std::this_thread::sleep_for(
                 std::chrono::milliseconds(sleep_ms[retry_count]));
         }
