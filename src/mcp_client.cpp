@@ -159,6 +159,7 @@ void McpClient::send_notification(const std::string& method) {
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
     if (!session_id_.empty()) {
         std::string sid = "Mcp-Session-Id: " + session_id_;
         headers = curl_slist_append(headers, sid.c_str());
