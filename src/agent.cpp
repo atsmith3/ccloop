@@ -4,6 +4,11 @@
 #include <algorithm>
 #include <atomic>
 
+static bool is_act_terminal(const std::string& content) {
+    return content.find("## Completed") != std::string::npos
+        || content.find("## Roadblock") != std::string::npos;
+}
+
 static std::string build_tools_prompt(const std::vector<ToolDef>& tools) {
     std::ostringstream ss;
     ss << "## Tools\n\n"
@@ -97,8 +102,11 @@ std::string Agent::system_prompt() const {
                 "  **Created**: [new files, or \"none\"]\n"
                 "  **Modified**: [changed files, or \"none\"]\n"
                 "  **Steps**: N of N completed\n\n"
-                "Match existing code style. Stay within plan scope. "
-                "Explain errors before asking for help. Ask before destructive actions."
+                "Match existing code style. Stay within plan scope.\n\n"
+                "## Roadblock (use only when you cannot proceed without user input)\n\n"
+                "  ## Roadblock: <one-line description of what is blocking you>\n\n"
+                "Output this marker to pause execution and ask the user for guidance. "
+                "Do not output it for recoverable errors — attempt fixes first."
                 + tools_section;
     }
     return "";
@@ -161,6 +169,12 @@ void Agent::loop() {
                 // Normal text response — push and show
                 context_.push_assistant(response.content);
                 ui_.show_message("agent", response.content);
+                // Act mode: auto-continue until the model signals completion or a roadblock
+                if (mode_ == AgentMode::Act && !is_act_terminal(response.content)) {
+                    context_.push_user("Continue.");
+                    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                    continue;
+                }
             } else {
                 // Empty content, no tool calls — don't pollute context
                 ui_.show_error("[warning] empty response from model");
