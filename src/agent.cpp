@@ -112,6 +112,33 @@ std::string Agent::system_prompt() const {
     return "";
 }
 
+void Agent::compact_with_summary() {
+    ui_.show_message("system", "Compacting context with summarization...");
+
+    std::string conversation = context_.extract_conversation_for_summary();
+    if (conversation.empty()) {
+        context_.compact();
+        return;
+    }
+
+    ContextManager summary_ctx(config_.token_limit * 4);
+    summary_ctx.push_system(
+        "You are a helpful assistant. Summarize the following conversation concisely but "
+        "completely. Preserve: key decisions, files created or modified, code changes made, "
+        "plan steps completed and any remaining steps, errors encountered and how they were "
+        "resolved. Output only the summary with no preamble.");
+    summary_ctx.push_user("Summarize this conversation:\n\n" + conversation);
+
+    LlmResponse resp = llm_.complete(summary_ctx, {});
+    if (resp.is_error || resp.content.empty()) {
+        ui_.show_error("[compact] Summarization failed — falling back to rolling window");
+        context_.compact();
+    } else {
+        context_.compact_to_summary(resp.content);
+    }
+    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+}
+
 void Agent::loop() {
     while (!should_exit.load()) {
         std::string input;
@@ -143,7 +170,7 @@ void Agent::loop() {
         // Main interaction loop: keep calling LLM until we get text response
         while (!should_exit.load() && !should_interrupt.load()) {
             if (context_.needs_compaction()) {
-                context_.compact();
+                compact_with_summary();
             }
 
             LlmResponse response = llm_.complete(context_, registry_.definitions());
@@ -285,9 +312,15 @@ bool Agent::handle_slash_command(std::string_view input) {
         return true;
     }
 
+    if (command == "compact") {
+        compact_with_summary();
+        return true;
+    }
+
     if (command == "help") {
         std::cout << "Slash commands:\n"
                   << "  /mode plan|act - switch modes\n"
+                  << "  /compact - summarize and compact the context window\n"
                   << "  /quit - exit\n"
                   << "  /clear - clear context\n"
                   << "  /help - show this help\n";
