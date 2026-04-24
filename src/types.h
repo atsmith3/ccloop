@@ -80,6 +80,8 @@ struct LlmResponse {
         size_t prompt_tokens     = 0;
         size_t completion_tokens = 0;
         size_t total_tokens      = 0;
+        size_t cache_read_tokens  = 0;
+        size_t cache_write_tokens = 0;
     } usage;
 
 };

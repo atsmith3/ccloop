@@ -17,6 +17,8 @@ public:
 
     bool needs_compaction() const;
     void compact();
+    std::string extract_conversation_for_summary() const;
+    void        compact_to_summary(const std::string& summary);
 
     std::string to_json() const;
 

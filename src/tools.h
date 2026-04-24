@@ -46,3 +46,4 @@ ToolResult tool_edit_file   (const ToolArgs& args);
 ToolResult tool_create_dir  (const ToolArgs& args);
 ToolResult tool_delete_file (const ToolArgs& args);
 ToolResult tool_run_shell   (const ToolArgs& args);
+ToolResult tool_spawn_agent (const ToolArgs& args, const std::string& config_path = "");

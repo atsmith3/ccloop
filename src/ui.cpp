@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "agent.h"
 #include "json.h"
 #include <iostream>
 
@@ -52,6 +53,17 @@ void Ui::update_tokens(size_t used, size_t limit) {
     std::cout.flush();
 }
 
+void Ui::show_usage(const LlmResponse::Usage& usage, size_t ctx_used, size_t ctx_limit) {
+    std::cout << "[tokens] in: " << usage.prompt_tokens
+              << " | out: " << usage.completion_tokens;
+    if (usage.cache_read_tokens > 0)
+        std::cout << " | cache_rd: " << usage.cache_read_tokens;
+    if (usage.cache_write_tokens > 0)
+        std::cout << " | cache_wr: " << usage.cache_write_tokens;
+    std::cout << " | ctx: " << ctx_used << "/" << ctx_limit << "\n";
+    std::cout.flush();
+}
+
 void Ui::show_error(std::string_view msg) {
     std::cerr << "[error] " << msg << "\n";
     std::cerr.flush();
@@ -69,15 +81,21 @@ Approval Ui::request_approval(const ToolCall& call) {
     std::cout.flush();
 
     while (true) {
+        if (should_interrupt.load()) {
+            std::cout << "\n";
+            return Approval::Reject;
+        }
         std::string line;
         if (!std::getline(std::cin, line)) {
+            std::cin.clear();
             std::cout << "\n";
-            return Approval::Reject;  // EOF
+            return Approval::Reject;  // EOF or EINTR
         }
         // Trim \r (Windows-style line endings)
         while (!line.empty() && line.back() == '\r') line.pop_back();
 
         if (line.empty()) {
+            if (should_interrupt.load()) return Approval::Reject;
             std::cout << "[y/n]: ";
             std::cout.flush();
             continue;
@@ -95,7 +113,10 @@ std::string Ui::wait_for_input() {
     std::cout.flush();
 
     std::string line;
-    std::getline(std::cin, line);
+    if (!std::getline(std::cin, line)) {
+        std::cin.clear();  // reset failbit set by EINTR or EOF
+        return "";
+    }
 
     // Trim trailing whitespace
     while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r')) {

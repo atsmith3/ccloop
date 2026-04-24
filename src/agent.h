@@ -8,6 +8,7 @@
 #include "ui.h"
 
 extern std::atomic<bool> should_exit;
+extern std::atomic<bool> should_interrupt;
 
 class Agent {
 public:
@@ -25,6 +26,7 @@ private:
     bool           non_interactive_ = false;
 
     void loop();
+    void compact_with_summary();
     void handle_tool_calls(const std::vector<ToolCall>& calls);
     bool requires_approval(const ToolDef& def) const;
     bool handle_slash_command(std::string_view input);

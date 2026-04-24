@@ -1,8 +1,12 @@
 #include "agent.h"
 #include <iostream>
 #include <sstream>
-#include <algorithm>
 #include <atomic>
+
+static bool is_act_terminal(const std::string& content) {
+    return content.find("## Completed") != std::string::npos
+        || content.find("## Roadblock") != std::string::npos;
+}
 
 static std::string build_tools_prompt(const std::vector<ToolDef>& tools) {
     std::ostringstream ss;
@@ -57,6 +61,12 @@ std::string Agent::system_prompt() const {
                 "- Use read_file to read relevant source files\n"
                 "- Use search_files to find patterns, definitions, or usages across the codebase\n"
                 "- Use run_shell to run build checks, tests, or other read-only commands\n\n"
+                "## Delegating to a sub-agent\n\n"
+                "For exploration or research tasks, call spawn_agent rather than reading files yourself:\n"
+                "  spawn_agent(prompt='Explore the core/ directory and explain what each module does')\n"
+                "  spawn_agent(prompt='Find all usages of LogicError and explain how errors propagate')\n"
+                "The sub-agent runs in act mode with full tool access and returns a complete summary.\n"
+                "Prefer spawn_agent when the task involves reading more than 2-3 files or searching broadly.\n\n"
                 "Never guess at file contents or project structure — always read first. "
                 "If you are unsure which files are relevant, keep exploring until you are confident.\n\n"
                 "When producing an implementation plan:\n"
@@ -97,11 +107,44 @@ std::string Agent::system_prompt() const {
                 "  **Created**: [new files, or \"none\"]\n"
                 "  **Modified**: [changed files, or \"none\"]\n"
                 "  **Steps**: N of N completed\n\n"
-                "Match existing code style. Stay within plan scope. "
-                "Explain errors before asking for help. Ask before destructive actions."
+                "You may use spawn_agent to delegate self-contained investigation tasks to a "
+                "fresh agent instance (research, exploration, or isolated analysis). The sub-agent "
+                "runs with full tool access in act mode and returns its complete output.\n\n"
+                "Match existing code style. Stay within plan scope.\n\n"
+                "## Roadblock (use only when you cannot proceed without user input)\n\n"
+                "  ## Roadblock: <one-line description of what is blocking you>\n\n"
+                "Output this marker to pause execution and ask the user for guidance. "
+                "Do not output it for recoverable errors — attempt fixes first."
                 + tools_section;
     }
     return "";
+}
+
+void Agent::compact_with_summary() {
+    ui_.show_message("system", "Compacting context with summarization...");
+
+    std::string conversation = context_.extract_conversation_for_summary();
+    if (conversation.empty()) {
+        context_.compact();
+        return;
+    }
+
+    ContextManager summary_ctx(config_.token_limit * 4);
+    summary_ctx.push_system(
+        "You are a helpful assistant. Summarize the following conversation concisely but "
+        "completely. Preserve: key decisions, files created or modified, code changes made, "
+        "plan steps completed and any remaining steps, errors encountered and how they were "
+        "resolved. Output only the summary with no preamble.");
+    summary_ctx.push_user("Summarize this conversation:\n\n" + conversation);
+
+    LlmResponse resp = llm_.complete(summary_ctx, {});
+    if (resp.is_error || resp.content.empty()) {
+        ui_.show_error("[compact] Summarization failed — falling back to rolling window");
+        context_.compact();
+    } else {
+        context_.compact_to_summary(resp.content);
+    }
+    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
 }
 
 void Agent::loop() {
@@ -122,35 +165,35 @@ void Agent::loop() {
         }
 
         if (input.empty()) {
+            if (should_interrupt.load()) {
+                should_interrupt = false;
+                std::cout << "\n[Interrupted] Type /quit to exit.\n> ";
+                std::cout.flush();
+            }
             continue;
         }
 
         context_.push_user(input);
 
         // Main interaction loop: keep calling LLM until we get text response
-        while (!should_exit.load()) {
+        while (!should_exit.load() && !should_interrupt.load()) {
             if (context_.needs_compaction()) {
-                context_.compact();
+                compact_with_summary();
             }
 
             LlmResponse response = llm_.complete(context_, registry_.definitions());
 
             if (response.is_error) {
-                // Error response: show to user but don't add to context or sync tokens
-                ui_.show_error("[ERROR] " + response.content);
-                ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                // Suppress curl-abort errors that result from Ctrl+C interruption
+                if (!should_interrupt.load()) {
+                    ui_.show_error("[ERROR] " + response.content);
+                    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                }
                 break;  // Exit inner loop, wait for next user input
             }
 
             context_.sync_token_count(response.usage);
-
-            // Drop tool calls for unrecognized tool names (e.g. bare <path> tags)
-            {
-                auto& tc = response.tool_calls;
-                tc.erase(std::remove_if(tc.begin(), tc.end(),
-                    [&](const ToolCall& c) { return !registry_.find(c.name).has_value(); }),
-                    tc.end());
-            }
+            ui_.show_usage(response.usage, context_.total_tokens(), config_.token_limit);
 
             if (!response.tool_calls.empty()) {
                 // Assistant called tools — push message and execute them
@@ -161,12 +204,26 @@ void Agent::loop() {
                 // Normal text response — push and show
                 context_.push_assistant(response.content);
                 ui_.show_message("agent", response.content);
+                // Act mode: auto-continue until the model signals completion or a roadblock
+                if (mode_ == AgentMode::Act && !is_act_terminal(response.content)
+                        && !should_interrupt.load()) {
+                    context_.push_user("Continue.");
+                    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                    continue;
+                }
             } else {
                 // Empty content, no tool calls — don't pollute context
                 ui_.show_error("[warning] empty response from model");
             }
-            ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
+        }
+
+        // Handle Ctrl+C: reset flag and return to prompt
+        if (should_interrupt.load()) {
+            should_interrupt = false;
+            std::cout << "\n[Interrupted] Task cancelled. Type /quit to exit.\n";
+            std::cout.flush();
+            continue;
         }
 
         if (non_interactive_) {
@@ -255,9 +312,15 @@ bool Agent::handle_slash_command(std::string_view input) {
         return true;
     }
 
+    if (command == "compact") {
+        compact_with_summary();
+        return true;
+    }
+
     if (command == "help") {
         std::cout << "Slash commands:\n"
                   << "  /mode plan|act - switch modes\n"
+                  << "  /compact - summarize and compact the context window\n"
                   << "  /quit - exit\n"
                   << "  /clear - clear context\n"
                   << "  /help - show this help\n";

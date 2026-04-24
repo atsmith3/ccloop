@@ -105,6 +105,36 @@ void ContextManager::compact() {
     }
 }
 
+std::string ContextManager::extract_conversation_for_summary() const {
+    std::ostringstream ss;
+    for (const auto& msg : messages_) {
+        if (msg.role == Message::Role::System) continue;
+        ss << (msg.role == Message::Role::User ? "User" : "Assistant")
+           << ": " << msg.content << "\n\n";
+    }
+    return ss.str();
+}
+
+void ContextManager::compact_to_summary(const std::string& summary) {
+    size_t first_ns = index_of_first_non_system();
+    size_t keep_from = messages_.size() > first_ns + 4
+                     ? messages_.size() - 4 : first_ns;
+
+    Message sum_msg;
+    sum_msg.role = Message::Role::User;
+    sum_msg.content = "[Context Summary — earlier conversation condensed]\n" + summary;
+    sum_msg.estimated_tokens = estimate_tokens(sum_msg.content);
+
+    std::vector<Message> kept;
+    for (size_t i = 0; i < first_ns; ++i)               kept.push_back(messages_[i]);
+    kept.push_back(sum_msg);
+    for (size_t i = keep_from; i < messages_.size(); ++i) kept.push_back(messages_[i]);
+
+    messages_ = std::move(kept);
+    total_tokens_ = 0;
+    for (const auto& m : messages_) total_tokens_ += m.estimated_tokens;
+}
+
 std::string ContextManager::to_json() const {
     std::ostringstream ss;
     ss << "[";

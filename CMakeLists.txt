@@ -9,6 +9,7 @@ find_package(CURL REQUIRED)
 # Main binary (stub until all src files exist)
 add_executable(ccl
     src/main.cpp
+    src/signals.cpp
     src/json.cpp
     src/config.cpp
     src/context.cpp
@@ -36,6 +37,7 @@ add_executable(ccl_test
     tests/test_tools.cpp
     tests/test_llm_client.cpp
     tests/test_mcp_client.cpp
+    src/signals.cpp
     src/json.cpp
     src/config.cpp
     src/context.cpp
