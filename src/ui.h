@@ -13,6 +13,7 @@ public:
     void show_tool_result(const ToolCall& call, const ToolResult& result);
     void show_mode       (AgentMode mode, size_t tokens_used, size_t token_limit);
     void update_tokens   (size_t used, size_t limit);
+    void show_usage      (const LlmResponse::Usage& usage, size_t ctx_used, size_t ctx_limit);
     void show_error      (std::string_view msg);
 
     Approval    request_approval(const ToolCall& call);

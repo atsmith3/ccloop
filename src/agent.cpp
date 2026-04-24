@@ -1,7 +1,6 @@
 #include "agent.h"
 #include <iostream>
 #include <sstream>
-#include <algorithm>
 #include <atomic>
 
 static bool is_act_terminal(const std::string& content) {
@@ -62,6 +61,12 @@ std::string Agent::system_prompt() const {
                 "- Use read_file to read relevant source files\n"
                 "- Use search_files to find patterns, definitions, or usages across the codebase\n"
                 "- Use run_shell to run build checks, tests, or other read-only commands\n\n"
+                "## Delegating to a sub-agent\n\n"
+                "For exploration or research tasks, call spawn_agent rather than reading files yourself:\n"
+                "  spawn_agent(prompt='Explore the core/ directory and explain what each module does')\n"
+                "  spawn_agent(prompt='Find all usages of LogicError and explain how errors propagate')\n"
+                "The sub-agent runs in act mode with full tool access and returns a complete summary.\n"
+                "Prefer spawn_agent when the task involves reading more than 2-3 files or searching broadly.\n\n"
                 "Never guess at file contents or project structure — always read first. "
                 "If you are unsure which files are relevant, keep exploring until you are confident.\n\n"
                 "When producing an implementation plan:\n"
@@ -102,6 +107,9 @@ std::string Agent::system_prompt() const {
                 "  **Created**: [new files, or \"none\"]\n"
                 "  **Modified**: [changed files, or \"none\"]\n"
                 "  **Steps**: N of N completed\n\n"
+                "You may use spawn_agent to delegate self-contained investigation tasks to a "
+                "fresh agent instance (research, exploration, or isolated analysis). The sub-agent "
+                "runs with full tool access in act mode and returns its complete output.\n\n"
                 "Match existing code style. Stay within plan scope.\n\n"
                 "## Roadblock (use only when you cannot proceed without user input)\n\n"
                 "  ## Roadblock: <one-line description of what is blocking you>\n\n"
@@ -185,14 +193,7 @@ void Agent::loop() {
             }
 
             context_.sync_token_count(response.usage);
-
-            // Drop tool calls for unrecognized tool names (e.g. bare <path> tags)
-            {
-                auto& tc = response.tool_calls;
-                tc.erase(std::remove_if(tc.begin(), tc.end(),
-                    [&](const ToolCall& c) { return !registry_.find(c.name).has_value(); }),
-                    tc.end());
-            }
+            ui_.show_usage(response.usage, context_.total_tokens(), config_.token_limit);
 
             if (!response.tool_calls.empty()) {
                 // Assistant called tools — push message and execute them
@@ -214,7 +215,6 @@ void Agent::loop() {
                 // Empty content, no tool calls — don't pollute context
                 ui_.show_error("[warning] empty response from model");
             }
-            ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             break;  // Exit inner loop, get next user input
         }
 

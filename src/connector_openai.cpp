@@ -97,6 +97,11 @@ LlmResponse OpenAiConnector::parse_response_json(const std::string& body) {
             if (ct.has_value()) response.usage.completion_tokens = static_cast<size_t>(ct->as_number());
             auto tt = usage_opt->get("total_tokens");
             if (tt.has_value()) response.usage.total_tokens = static_cast<size_t>(tt->as_number());
+            auto ptd = usage_opt->get("prompt_tokens_details");
+            if (ptd.has_value()) {
+                auto cr = ptd->get("cached_tokens");
+                if (cr.has_value()) response.usage.cache_read_tokens = static_cast<size_t>(cr->as_number());
+            }
         }
     } catch (const std::exception& e) {
         response.is_error = true;

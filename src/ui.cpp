@@ -53,6 +53,17 @@ void Ui::update_tokens(size_t used, size_t limit) {
     std::cout.flush();
 }
 
+void Ui::show_usage(const LlmResponse::Usage& usage, size_t ctx_used, size_t ctx_limit) {
+    std::cout << "[tokens] in: " << usage.prompt_tokens
+              << " | out: " << usage.completion_tokens;
+    if (usage.cache_read_tokens > 0)
+        std::cout << " | cache_rd: " << usage.cache_read_tokens;
+    if (usage.cache_write_tokens > 0)
+        std::cout << " | cache_wr: " << usage.cache_write_tokens;
+    std::cout << " | ctx: " << ctx_used << "/" << ctx_limit << "\n";
+    std::cout.flush();
+}
+
 void Ui::show_error(std::string_view msg) {
     std::cerr << "[error] " << msg << "\n";
     std::cerr.flush();

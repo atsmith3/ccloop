@@ -183,6 +183,7 @@ Config Config::load(const std::string& explicit_path) {
     if (!config_path.empty() && fs::exists(config_path)) {
         try {
             parse_toml(config_path, cfg);
+            cfg.config_path = fs::absolute(config_path).string();
         } catch (const std::exception& e) {
             // Fail silently, use defaults
         }

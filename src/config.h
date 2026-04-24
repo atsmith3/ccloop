@@ -44,6 +44,9 @@ struct Config {
     std::string   aws_access_key = "";
     std::string   aws_secret_key = "";
 
+    // Path of the loaded config file (absolute, set at load time)
+    std::string config_path = "";
+
     // MCP config file path (JSON, optional)
     std::string mcp_config = "";
 

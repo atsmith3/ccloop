@@ -134,6 +134,10 @@ LlmResponse BedrockConnector::parse_response_json(const std::string& body) {
             if (ot.has_value()) response.usage.completion_tokens = static_cast<size_t>(ot->as_number());
             auto tt = usage_opt->get("totalTokens");
             if (tt.has_value()) response.usage.total_tokens = static_cast<size_t>(tt->as_number());
+            auto cr = usage_opt->get("cacheReadInputTokenCount");
+            if (cr.has_value()) response.usage.cache_read_tokens = static_cast<size_t>(cr->as_number());
+            auto cw = usage_opt->get("cacheWriteInputTokenCount");
+            if (cw.has_value()) response.usage.cache_write_tokens = static_cast<size_t>(cw->as_number());
         }
         if (response.usage.total_tokens == 0) {
             response.usage.total_tokens = response.usage.prompt_tokens

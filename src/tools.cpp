@@ -542,6 +542,64 @@ ToolResult tool_run_shell(const ToolArgs& args) {
 }
 
 // ============================================================================
+// spawn_agent tool
+// ============================================================================
+
+static std::string shell_quote(const std::string& s) {
+    std::string result = "'";
+    for (char c : s) {
+        if (c == '\'') result += "'\\''";
+        else           result += c;
+    }
+    return result + "'";
+}
+
+ToolResult tool_spawn_agent(const ToolArgs& args, const std::string& config_path) {
+    auto prompt_it = args.find("prompt");
+    if (prompt_it == args.end() || !prompt_it->second.is_string()) {
+        return ToolResult::fail("spawn_agent: 'prompt' parameter is required");
+    }
+    std::string prompt = prompt_it->second.as_string();
+
+    std::string mode = "act";
+    auto mode_it = args.find("mode");
+    if (mode_it != args.end() && mode_it->second.is_string()) {
+        std::string m = mode_it->second.as_string();
+        if (m == "plan" || m == "act") mode = m;
+    }
+
+    // Resolve own binary path via /proc/self/exe
+    char self_path[4096];
+    ssize_t len = readlink("/proc/self/exe", self_path, sizeof(self_path) - 1);
+    if (len < 0) return ToolResult::fail("spawn_agent: cannot determine binary path");
+    self_path[len] = '\0';
+
+    std::string cmd = std::string(self_path) + " -p " + shell_quote(prompt)
+                    + " -m " + mode + " -y";
+    if (!config_path.empty()) {
+        cmd += " --config " + shell_quote(config_path);
+    }
+
+    ToolArgs shell_args;
+    { JsonValue v; v.data = std::string(cmd); shell_args["command"] = v; }
+
+    auto cwd_it = args.find("working_dir");
+    if (cwd_it != args.end() && cwd_it->second.is_string()) {
+        shell_args["cwd"] = cwd_it->second;
+    }
+
+    auto timeout_it = args.find("timeout_sec");
+    if (timeout_it != args.end()) {
+        shell_args["timeout_sec"] = timeout_it->second;
+    } else {
+        JsonValue v; v.data = static_cast<double>(600);
+        shell_args["timeout_sec"] = v;
+    }
+
+    return tool_run_shell(shell_args);
+}
+
+// ============================================================================
 // Registry factory
 // ============================================================================
 
@@ -655,6 +713,26 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         tool.def.params.push_back({"timeout_sec", "integer", "Timeout in seconds (optional, default 30)", false});
         tool.def.permission = "shell";
         tool.fn = tool_run_shell;
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // spawn_agent: invoke a fresh ccl instance as a focused sub-agent
+    {
+        Tool tool;
+        tool.def.name = "spawn_agent";
+        tool.def.description =
+            "Spawn a sub-agent of ccl to handle a focused task. The sub-agent runs with full "
+            "tool access and returns all its output. Use for bounded research, exploration, or "
+            "investigation tasks that benefit from isolation.";
+        tool.def.params.push_back({"prompt",      "string",  "Task description for the sub-agent",                  true});
+        tool.def.params.push_back({"mode",        "string",  "Agent mode: 'act' (default) or 'plan'",              false});
+        tool.def.params.push_back({"working_dir", "string",  "Working directory for the sub-agent (optional)",     false});
+        tool.def.params.push_back({"timeout_sec", "integer", "Timeout in seconds (optional, default 600)",         false});
+        tool.def.permission = "shell";
+        tool.fn = [config_path = cfg.config_path](const ToolArgs& args) {
+            return tool_spawn_agent(args, config_path);
+        };
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
