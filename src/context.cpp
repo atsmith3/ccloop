@@ -93,8 +93,9 @@ void ContextManager::compact() {
     // Drop oldest message groups until below the token limit (or no progress possible)
     while (needs_compaction()) {
         size_t drop_end = find_safe_drop_end(first_non_system);
-        if (drop_end <= first_non_system) break;  // no safe boundary found, stop
+        if (drop_end <= first_non_system) break;
 
+        size_t before = messages_.size();
         size_t tokens_removed = 0;
         for (size_t i = first_non_system; i < drop_end; ++i) {
             tokens_removed += messages_[i].estimated_tokens;
@@ -102,6 +103,7 @@ void ContextManager::compact() {
         messages_.erase(messages_.begin() + first_non_system,
                         messages_.begin() + drop_end);
         total_tokens_ -= tokens_removed;
+        if (messages_.size() == before) break;  // safety: no progress made
     }
 }
 
@@ -164,6 +166,10 @@ std::string ContextManager::to_json() const {
 
     ss << "]";
     return ss.str();
+}
+
+const std::vector<Message>& ContextManager::messages() const {
+    return messages_;
 }
 
 size_t ContextManager::total_tokens() const {

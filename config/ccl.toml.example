@@ -4,8 +4,8 @@ model       = "qwen3-235b"
 timeout_sec = 30
 token_limit = 8000
 
-# Connector type: openai-qwen (default) | openai-json | bedrock
-connector   = "openai-qwen"
+# Connector type: openai-json (default) | bedrock
+connector   = "openai-json"
 
 # AWS Bedrock settings (only needed when connector = "bedrock")
 # aws_region     = "us-east-1"

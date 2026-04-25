@@ -10,40 +10,28 @@ BedrockConnector::BedrockConnector(const Config& cfg)
     if (curl_) {
         std::string sigv4_param = "aws:amz:" + cfg_.aws_region + ":bedrock-runtime";
         curl_easy_setopt(curl_, CURLOPT_AWS_SIGV4, sigv4_param.c_str());
-        std::string userpwd = cfg_.aws_access_key + ":" + cfg_.aws_secret_key;
-        curl_easy_setopt(curl_, CURLOPT_USERPWD, userpwd.c_str());
+        userpwd_ = cfg_.aws_access_key + ":" + cfg_.aws_secret_key;
+        curl_easy_setopt(curl_, CURLOPT_USERPWD, userpwd_.c_str());
     }
 }
 
 std::string BedrockConnector::build_request_json(const ContextManager& ctx,
                                                  const Config& cfg,
                                                  const std::vector<ToolDef>& tools) {
-    // Parse context messages from JSON (avoids adding a messages() accessor to ContextManager)
-    JsonValue msgs_json = parse_json(ctx.to_json());
-
     std::string system_text;
     std::ostringstream messages_ss;
     bool first_msg = true;
 
-    if (msgs_json.is_array()) {
-        for (const auto& msg_ptr : msgs_json.as_array()) {
-            auto role_opt    = msg_ptr->get("role");
-            auto content_opt = msg_ptr->get("content");
-            if (!role_opt.has_value() || !content_opt.has_value()) continue;
-
-            std::string role    = role_opt->as_string();
-            std::string content = content_opt->as_string();
-
-            if (role == "system") {
-                system_text = content;
-                continue;
-            }
-
-            if (!first_msg) messages_ss << ",";
-            messages_ss << "{\"role\":\"" << escape_json(role) << "\""
-                        << ",\"content\":[{\"text\":\"" << escape_json(content) << "\"}]}";
-            first_msg = false;
+    for (const auto& msg : ctx.messages()) {
+        if (msg.role == Message::Role::System) {
+            system_text = msg.content;
+            continue;
         }
+        std::string role = (msg.role == Message::Role::User) ? "user" : "assistant";
+        if (!first_msg) messages_ss << ",";
+        messages_ss << "{\"role\":\"" << escape_json(role) << "\""
+                    << ",\"content\":[{\"text\":\"" << escape_json(msg.content) << "\"}]}";
+        first_msg = false;
     }
 
     std::ostringstream ss;

@@ -37,7 +37,7 @@ struct Config {
     Permissions permissions;
 
     // Connector type
-    ConnectorType connector_type = ConnectorType::QwenXml;
+    ConnectorType connector_type = ConnectorType::OpenAiJson;
 
     // AWS Bedrock settings (only needed when connector_type == Bedrock)
     std::string   aws_region     = "us-east-1";

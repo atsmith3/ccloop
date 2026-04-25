@@ -17,7 +17,6 @@ add_executable(ccl
     src/mcp_client.cpp
     src/connector.cpp
     src/connector_base.cpp
-    src/connector_qwen.cpp
     src/connector_openai.cpp
     src/connector_bedrock.cpp
     src/llm_client.cpp
@@ -45,7 +44,6 @@ add_executable(ccl_test
     src/mcp_client.cpp
     src/connector.cpp
     src/connector_base.cpp
-    src/connector_qwen.cpp
     src/connector_openai.cpp
     src/connector_bedrock.cpp
     src/llm_client.cpp
