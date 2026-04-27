@@ -43,14 +43,23 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
     curl_easy_setopt(curl_, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl_, CURLOPT_XFERINFOFUNCTION, interrupt_progress_cb);
 
-    int sleep_ms[] = {1000, 2000, 4000};
     int retry_count = 0;
 
     while (retry_count <= cfg_.max_retries) {
         response_body.clear();
         CURLcode res = curl_easy_perform(curl_);
+
         if (res != CURLE_OK) {
-            return {500, std::string(curl_easy_strerror(res))};
+            // Retry on timeout; all other curl errors are terminal
+            if (res != CURLE_OPERATION_TIMEDOUT
+                    || retry_count >= cfg_.max_retries
+                    || should_interrupt.load()) {
+                return {500, std::string(curl_easy_strerror(res))};
+            }
+            int delay_ms = 1000 << std::min(retry_count, 2);
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+            ++retry_count;
+            continue;
         }
 
         long http_code = 0;
@@ -66,8 +75,8 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
         }
 
         if (retry_count < cfg_.max_retries && !should_interrupt.load()) {
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(sleep_ms[retry_count]));
+            int delay_ms = 1000 << std::min(retry_count, 2);
+            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
         }
         ++retry_count;
     }

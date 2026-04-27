@@ -1,5 +1,4 @@
 #include "harness.h"
-#include "../src/connector_qwen.h"
 #include "../src/connector_openai.h"
 #include "../src/connector_bedrock.h"
 #include "../src/connector_base.h"
@@ -7,7 +6,7 @@
 #include "../src/json.h"
 
 // ============================================================================
-// QwenConnector tests (formerly LlmClient static method tests)
+// OpenAiConnector — request building
 // ============================================================================
 
 TEST(llm_request_build_basic) {
@@ -15,7 +14,7 @@ TEST(llm_request_build_basic) {
     ContextManager ctx(8000);
     ctx.push_user("hello");
 
-    std::string request = QwenConnector::build_request_json(ctx, cfg);
+    std::string request = OpenAiConnector::build_request_json(ctx, cfg, {});
     JsonValue parsed = parse_json(request);
 
     CHECK(parsed.get("model"));
@@ -29,76 +28,8 @@ TEST(llm_request_no_tools_array) {
     ContextManager ctx(8000);
     ctx.push_user("hello");
 
-    std::string request = QwenConnector::build_request_json(ctx, cfg);
+    std::string request = OpenAiConnector::build_request_json(ctx, cfg, {});
     CHECK(request.find("\"tools\"") == std::string::npos);
-}
-
-TEST(llm_parse_response_text_only) {
-    std::string response = R"({
-        "choices": [{
-            "message": {
-                "content": "Hello, this is a response"
-            },
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": 10,
-            "completion_tokens": 15,
-            "total_tokens": 25
-        }
-    })";
-
-    LlmResponse llm_resp = QwenConnector::parse_response_json(response);
-    CHECK_EQ(llm_resp.content, std::string("Hello, this is a response"));
-    CHECK_EQ(llm_resp.usage.prompt_tokens, size_t(10));
-    CHECK_EQ(llm_resp.usage.completion_tokens, size_t(15));
-    CHECK_EQ(llm_resp.usage.total_tokens, size_t(25));
-}
-
-TEST(llm_parse_response_usage) {
-    std::string response = R"({
-        "choices": [{
-            "message": {"content": "test"},
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": 100,
-            "completion_tokens": 50,
-            "total_tokens": 150
-        }
-    })";
-
-    LlmResponse llm_resp = QwenConnector::parse_response_json(response);
-    CHECK_EQ(llm_resp.usage.prompt_tokens, size_t(100));
-    CHECK_EQ(llm_resp.usage.completion_tokens, size_t(50));
-    CHECK_EQ(llm_resp.usage.total_tokens, size_t(150));
-}
-
-TEST(llm_parse_malformed_response) {
-    std::string response = R"({
-        "choices": [{
-            "message": {"content": "fallback"}
-        }]
-    })";
-
-    LlmResponse llm_resp = QwenConnector::parse_response_json(response);
-    CHECK_EQ(llm_resp.content, std::string("fallback"));
-    CHECK_EQ(llm_resp.usage.total_tokens, size_t(0));
-}
-
-TEST(llm_parse_malformed_json_sets_is_error) {
-    LlmResponse r = QwenConnector::parse_response_json("not valid json {{{{");
-    CHECK(r.is_error);
-    CHECK(!r.content.empty());
-}
-
-TEST(llm_parse_response_is_error_false_for_success) {
-    std::string response = R"({
-        "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(response);
-    CHECK(!r.is_error);
 }
 
 TEST(llm_build_request_json_escapes_model_name) {
@@ -107,90 +38,10 @@ TEST(llm_build_request_json_escapes_model_name) {
     ContextManager ctx(8000);
     ctx.push_user("test");
 
-    std::string request = QwenConnector::build_request_json(ctx, cfg);
+    std::string request = OpenAiConnector::build_request_json(ctx, cfg, {});
     CHECK(request.find("my-\\\"model\\\"") != std::string::npos);
     CHECK(request.find("\"my-\"model\"\"") == std::string::npos);
 }
-
-TEST(llm_retryable_error_429) {
-    CHECK(ConnectorBase::is_retryable_status(429));
-}
-
-TEST(llm_retryable_error_503) {
-    CHECK(ConnectorBase::is_retryable_status(503));
-}
-
-TEST(llm_non_retryable_error_400) {
-    CHECK(!ConnectorBase::is_retryable_status(400));
-}
-
-TEST(llm_non_retryable_error_401) {
-    CHECK(!ConnectorBase::is_retryable_status(401));
-}
-
-TEST(llm_parse_xml_single_tool_call) {
-    std::string body = R"({
-        "choices":[{"finish_reason":"stop","message":{
-            "content":"<read_file>\n<path>/tmp/x.txt</path>\n</read_file>",
-            "role":"assistant"
-        }}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
-    CHECK(r.tool_calls[0].args.count("path") > 0);
-    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/tmp/x.txt"));
-    CHECK(!r.tool_calls[0].id.empty());
-}
-
-TEST(llm_parse_xml_multiple_tool_calls) {
-    std::string body = R"({
-        "choices":[{"finish_reason":"stop","message":{
-            "content":"<read_file>\n<path>/tmp/a.txt</path>\n</read_file>\n<list_dir>\n<path>/tmp</path>\n</list_dir>",
-            "role":"assistant"
-        }}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(2));
-    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
-    CHECK_EQ(r.tool_calls[1].name, std::string("list_dir"));
-    CHECK(r.tool_calls[0].id != r.tool_calls[1].id);
-}
-
-TEST(llm_parse_xml_no_tool_calls) {
-    std::string body = R"({
-        "choices":[{"finish_reason":"stop","message":{
-            "content":"just plain text, no tool calls",
-            "role":"assistant"
-        }}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(0));
-    CHECK_EQ(r.content, std::string("just plain text, no tool calls"));
-}
-
-TEST(llm_parse_xml_multiple_params) {
-    std::string body = R"({
-        "choices":[{"finish_reason":"stop","message":{
-            "content":"<search_files>\n<path>/src</path>\n<pattern>main</pattern>\n<file_glob>*.cpp</file_glob>\n</search_files>",
-            "role":"assistant"
-        }}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].name, std::string("search_files"));
-    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/src"));
-    CHECK_EQ(r.tool_calls[0].args.at("pattern").as_string(), std::string("main"));
-    CHECK_EQ(r.tool_calls[0].args.at("file_glob").as_string(), std::string("*.cpp"));
-}
-
-// ============================================================================
-// OpenAiConnector tests
-// ============================================================================
 
 TEST(openai_request_has_tools_array) {
     Config cfg = Config::defaults();
@@ -257,6 +108,90 @@ TEST(openai_parse_text_only_response) {
     CHECK_EQ(r.content, std::string("Hello world"));
     CHECK_EQ(r.tool_calls.size(), size_t(0));
     CHECK(!r.is_error);
+}
+
+TEST(llm_parse_response_text_only) {
+    std::string response = R"({
+        "choices": [{
+            "message": {
+                "content": "Hello, this is a response"
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 15,
+            "total_tokens": 25
+        }
+    })";
+
+    LlmResponse llm_resp = OpenAiConnector::parse_response_json(response);
+    CHECK_EQ(llm_resp.content, std::string("Hello, this is a response"));
+    CHECK_EQ(llm_resp.usage.prompt_tokens, size_t(10));
+    CHECK_EQ(llm_resp.usage.completion_tokens, size_t(15));
+    CHECK_EQ(llm_resp.usage.total_tokens, size_t(25));
+}
+
+TEST(llm_parse_response_usage) {
+    std::string response = R"({
+        "choices": [{
+            "message": {"content": "test"},
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    })";
+
+    LlmResponse llm_resp = OpenAiConnector::parse_response_json(response);
+    CHECK_EQ(llm_resp.usage.prompt_tokens, size_t(100));
+    CHECK_EQ(llm_resp.usage.completion_tokens, size_t(50));
+    CHECK_EQ(llm_resp.usage.total_tokens, size_t(150));
+}
+
+TEST(llm_parse_malformed_response) {
+    std::string response = R"({
+        "choices": [{
+            "message": {"content": "fallback"}
+        }]
+    })";
+
+    LlmResponse llm_resp = OpenAiConnector::parse_response_json(response);
+    CHECK_EQ(llm_resp.content, std::string("fallback"));
+    CHECK_EQ(llm_resp.usage.total_tokens, size_t(0));
+}
+
+TEST(llm_parse_malformed_json_sets_is_error) {
+    LlmResponse r = OpenAiConnector::parse_response_json("not valid json {{{{");
+    CHECK(r.is_error);
+    CHECK(!r.content.empty());
+}
+
+TEST(llm_parse_response_is_error_false_for_success) {
+    std::string response = R"({
+        "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+    })";
+    LlmResponse r = OpenAiConnector::parse_response_json(response);
+    CHECK(!r.is_error);
+}
+
+TEST(llm_retryable_error_429) {
+    CHECK(ConnectorBase::is_retryable_status(429));
+}
+
+TEST(llm_retryable_error_503) {
+    CHECK(ConnectorBase::is_retryable_status(503));
+}
+
+TEST(llm_non_retryable_error_400) {
+    CHECK(!ConnectorBase::is_retryable_status(400));
+}
+
+TEST(llm_non_retryable_error_401) {
+    CHECK(!ConnectorBase::is_retryable_status(401));
 }
 
 TEST(openai_parse_malformed_json_sets_is_error) {
@@ -348,83 +283,6 @@ TEST(bedrock_parse_malformed_json_sets_is_error) {
 }
 
 // ============================================================================
-// QwenConnector — response parsing edge cases
-// ============================================================================
-
-TEST(qwen_parse_empty_choices_array) {
-    std::string body = R"({"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK(!r.is_error);
-    CHECK(r.content.empty());
-    CHECK_EQ(r.tool_calls.size(), size_t(0));
-}
-
-TEST(qwen_parse_missing_choices_field) {
-    std::string body = R"({"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK(!r.is_error);
-    CHECK(r.content.empty());
-}
-
-TEST(qwen_parse_null_content_no_error) {
-    // content field present but null (JSON null) — no error, empty content
-    std::string body = R"({
-        "choices":[{"message":{"content":null},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK(!r.is_error);
-    CHECK(r.content.empty());
-    CHECK_EQ(r.tool_calls.size(), size_t(0));
-}
-
-TEST(qwen_parse_xml_empty_param_value) {
-    std::string body = R"({
-        "choices":[{"message":{"content":"<read_file><path></path></read_file>"},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
-    CHECK(r.tool_calls[0].args.count("path") > 0);
-    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string(""));
-}
-
-TEST(qwen_parse_xml_whitespace_param_trimmed) {
-    std::string body = R"({
-        "choices":[{"message":{"content":"<read_file><path>  /tmp/x.txt  </path></read_file>"},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].args.at("path").as_string(), std::string("/tmp/x.txt"));
-}
-
-TEST(qwen_parse_xml_text_before_and_after_tool) {
-    std::string body = R"({
-        "choices":[{"message":{"content":"Let me read that.\n<read_file>\n<path>/tmp/x.txt</path>\n</read_file>\nDone."},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].name, std::string("read_file"));
-    // Full raw content is preserved
-    CHECK(r.content.find("Let me read") != std::string::npos);
-    CHECK(r.content.find("Done.") != std::string::npos);
-}
-
-TEST(qwen_parse_xml_unclosed_tag_skipped) {
-    // No closing </read_file> — should produce zero tool calls without crashing
-    std::string body = R"({
-        "choices":[{"message":{"content":"<read_file><path>/x"},"finish_reason":"stop"}],
-        "usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
-    })";
-    LlmResponse r = QwenConnector::parse_response_json(body);
-    CHECK(!r.is_error);
-    CHECK_EQ(r.tool_calls.size(), size_t(0));
-}
-
-// ============================================================================
 // OpenAiConnector — request building edge cases
 // ============================================================================
 
@@ -444,7 +302,6 @@ TEST(openai_request_optional_params_not_in_required) {
     std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);
     JsonValue parsed = parse_json(request);
 
-    // Navigate to parameters.required
     auto tools_arr = parsed.get("tools");
     CHECK(tools_arr.has_value());
     auto fn = tools_arr->as_array()[0]->get("function");
@@ -454,7 +311,6 @@ TEST(openai_request_optional_params_not_in_required) {
 
     auto req = params->get("required");
     CHECK(req.has_value());
-    // Only "path" is required
     CHECK_EQ(req->as_array().size(), size_t(1));
     CHECK_EQ(req->as_array()[0]->as_string(), std::string("path"));
 }
@@ -471,7 +327,6 @@ TEST(openai_request_tool_no_params) {
     auto fn = parsed.get("tools")->as_array()[0]->get("function");
     auto params = fn->get("parameters");
     CHECK(params.has_value());
-    // Empty properties, no required array
     auto props = params->get("properties");
     CHECK(props.has_value());
     CHECK(props->is_object());
@@ -490,7 +345,6 @@ TEST(openai_request_escapes_tool_description) {
     }};
 
     std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);
-    // Must parse as valid JSON
     JsonValue parsed = parse_json(request);
     auto fn = parsed.get("tools")->as_array()[0]->get("function");
     CHECK_EQ(fn->get("description")->as_string(),
@@ -626,10 +480,8 @@ TEST(bedrock_request_excludes_system_from_messages_array) {
     std::string request = BedrockConnector::build_request_json(ctx, cfg, {});
     JsonValue parsed = parse_json(request);
 
-    // system field present
     CHECK(parsed.get("system").has_value());
 
-    // messages array has only user message (not system)
     auto msgs = parsed.get("messages");
     CHECK(msgs.has_value());
     CHECK_EQ(msgs->as_array().size(), size_t(1));
@@ -726,7 +578,6 @@ TEST(bedrock_parse_missing_tool_use_id_uses_fallback) {
 }
 
 TEST(bedrock_parse_usage_total_tokens_computed) {
-    // totalTokens absent — should be computed as inputTokens + outputTokens
     std::string body = R"({
         "output": {"message": {"content": [{"text": "hi"}]}},
         "usage": {"inputTokens": 10, "outputTokens": 5}

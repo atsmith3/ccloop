@@ -1,6 +1,5 @@
 #include "agent.h"
 #include <iostream>
-#include <sstream>
 #include <atomic>
 
 static bool is_act_terminal(const std::string& content) {
@@ -8,25 +7,6 @@ static bool is_act_terminal(const std::string& content) {
         || content.find("## Roadblock") != std::string::npos;
 }
 
-static std::string build_tools_prompt(const std::vector<ToolDef>& tools) {
-    std::ostringstream ss;
-    ss << "## Tools\n\n"
-       << "To use a tool, output ONLY the XML block — no surrounding text. "
-       << "One tool per response. Wait for the result before continuing.\n";
-
-    for (const auto& tool : tools) {
-        ss << "\n<" << tool.name << ">\n";
-        for (const auto& p : tool.params) {
-            ss << "<" << p.name << ">"
-               << p.description
-               << " (" << p.type << ", " << (p.required ? "required" : "optional") << ")"
-               << "</" << p.name << ">\n";
-        }
-        ss << "</" << tool.name << ">\n"
-           << tool.description << "\n";
-    }
-    return ss.str();
-}
 
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode), context_(config.token_limit), llm_(config),
@@ -44,13 +24,6 @@ void Agent::run(const std::string& initial_prompt) {
 }
 
 std::string Agent::system_prompt() const {
-    // XML tool instructions are only injected for QwenXml connector;
-    // OpenAI JSON and Bedrock connectors receive tool definitions via the API.
-    std::string tools_section;
-    if (config_.connector_type == ConnectorType::QwenXml) {
-        tools_section = "\n\n" + build_tools_prompt(registry_.definitions());
-    }
-
     switch (mode_) {
         case AgentMode::Plan:
             return
@@ -81,8 +54,7 @@ std::string Agent::system_prompt() const {
                 "It will become the plan filename.\n"
                 "4. Call out risks, dependencies, or prerequisites\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
-                "that you have not confirmed exist. Do not write or modify any files."
-                + tools_section;
+                "that you have not confirmed exist. Do not write or modify any files.";
         case AgentMode::Act:
             return
                 "You are an expert software engineer executing tasks precisely and methodically.\n\n"
@@ -114,8 +86,7 @@ std::string Agent::system_prompt() const {
                 "## Roadblock (use only when you cannot proceed without user input)\n\n"
                 "  ## Roadblock: <one-line description of what is blocking you>\n\n"
                 "Output this marker to pause execution and ask the user for guidance. "
-                "Do not output it for recoverable errors — attempt fixes first."
-                + tools_section;
+                "Do not output it for recoverable errors — attempt fixes first.";
     }
     return "";
 }
@@ -176,6 +147,8 @@ void Agent::loop() {
         context_.push_user(input);
 
         // Main interaction loop: keep calling LLM until we get text response
+        int act_steps = 0;
+        constexpr int kActStepLimit = 25;
         while (!should_exit.load() && !should_interrupt.load()) {
             if (context_.needs_compaction()) {
                 compact_with_summary();
@@ -207,6 +180,10 @@ void Agent::loop() {
                 // Act mode: auto-continue until the model signals completion or a roadblock
                 if (mode_ == AgentMode::Act && !is_act_terminal(response.content)
                         && !should_interrupt.load()) {
+                    if (++act_steps >= kActStepLimit) {
+                        ui_.show_error("[warning] Act step limit reached — stopping");
+                        break;
+                    }
                     context_.push_user("Continue.");
                     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
                     continue;

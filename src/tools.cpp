@@ -269,7 +269,7 @@ ToolResult tool_file_info(const ToolArgs& args) {
 
 // Helper: write content atomically via a .ccl.tmp file; returns error string on failure.
 static std::string atomic_write(const std::string& path, const std::string& content) {
-    std::string tmp_path = path + ".ccl.tmp";
+    std::string tmp_path = path + ".ccl." + std::to_string(getpid()) + ".tmp";
     {
         std::ofstream tmp_file(tmp_path);
         if (!tmp_file) return "Failed to create temporary file: " + tmp_path;

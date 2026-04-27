@@ -101,9 +101,8 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.token_limit = std::stoul(value);
         } else if (key == "connector") {
             std::string v = parse_string_value(value);
-            if      (v == "openai-json") cfg.connector_type = ConnectorType::OpenAiJson;
-            else if (v == "bedrock")     cfg.connector_type = ConnectorType::Bedrock;
-            else                         cfg.connector_type = ConnectorType::QwenXml;
+            if      (v == "bedrock")     cfg.connector_type = ConnectorType::Bedrock;
+            else                         cfg.connector_type = ConnectorType::OpenAiJson;
         } else if (key == "aws_region") {
             cfg.aws_region = parse_string_value(value);
         } else if (key == "aws_access_key") {

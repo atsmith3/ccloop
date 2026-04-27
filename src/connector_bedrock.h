@@ -15,4 +15,7 @@ public:
                                           const Config& cfg,
                                           const std::vector<ToolDef>& tools);
     static LlmResponse parse_response_json(const std::string& body);
+
+private:
+    std::string userpwd_;  // kept alive for the duration of the curl handle
 };

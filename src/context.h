@@ -21,6 +21,7 @@ public:
     void        compact_to_summary(const std::string& summary);
 
     std::string to_json() const;
+    const std::vector<Message>& messages() const;
 
     size_t total_tokens()  const;
     size_t message_count() const;

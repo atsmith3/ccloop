@@ -166,9 +166,9 @@ shell = true
 // Connector type config tests
 // ============================================================================
 
-TEST(config_connector_defaults_to_qwen) {
+TEST(config_connector_defaults_to_openai_json) {
     Config cfg = Config::defaults();
-    CHECK(cfg.connector_type == ConnectorType::QwenXml);
+    CHECK(cfg.connector_type == ConnectorType::OpenAiJson);
 }
 
 TEST(config_connector_openai_json_parsed) {
@@ -185,10 +185,10 @@ TEST(config_connector_bedrock_parsed) {
     fs::remove(path);
 }
 
-TEST(config_connector_unknown_defaults_to_qwen) {
+TEST(config_connector_unknown_defaults_to_openai_json) {
     std::string path = create_temp_toml("connector = \"something-unknown\"\n");
     Config cfg = Config::load(path);
-    CHECK(cfg.connector_type == ConnectorType::QwenXml);
+    CHECK(cfg.connector_type == ConnectorType::OpenAiJson);
     fs::remove(path);
 }
 
