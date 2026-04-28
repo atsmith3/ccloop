@@ -100,7 +100,5 @@ int main(int argc, char* argv[]) {
     // Run agent
     Ui ui;
     Agent agent(loaded_config, ui, initial_mode);
-    agent.run(cli_prompt);
-
-    return 0;
+    return agent.run(cli_prompt);
 }

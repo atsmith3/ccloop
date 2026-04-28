@@ -99,6 +99,8 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.temperature = std::stof(value);
         } else if (key == "token_limit") {
             cfg.token_limit = std::stoul(value);
+        } else if (key == "compaction_keep_recent") {
+            cfg.compaction_keep_recent = std::stoul(value);
         } else if (key == "connector") {
             std::string v = parse_string_value(value);
             if      (v == "bedrock")     cfg.connector_type = ConnectorType::Bedrock;

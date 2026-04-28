@@ -9,10 +9,11 @@ static bool is_act_terminal(const std::string& content) {
 
 
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
-    : config_(config), mode_(initial_mode), context_(config.token_limit), llm_(config),
+    : config_(config), mode_(initial_mode),
+      context_(config.token_limit, config.compaction_keep_recent), llm_(config),
       registry_(make_registry(initial_mode, config)), ui_(ui) {}
 
-void Agent::run(const std::string& initial_prompt) {
+int Agent::run(const std::string& initial_prompt) {
     context_.push_system(system_prompt());
     ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
@@ -21,6 +22,7 @@ void Agent::run(const std::string& initial_prompt) {
         non_interactive_ = true;
     }
     loop();
+    return exit_code_;
 }
 
 std::string Agent::system_prompt() const {
@@ -164,6 +166,7 @@ void Agent::loop() {
         // Main interaction loop: keep calling LLM until we get text response
         int act_steps = 0;
         constexpr int kActStepLimit = 25;
+        bool turn_error = false;
         while (!should_exit.load() && !should_interrupt.load()) {
             if (context_.needs_compaction()) {
                 compact_with_summary();
@@ -176,6 +179,7 @@ void Agent::loop() {
                 if (!should_interrupt.load()) {
                     ui_.show_error("[ERROR] " + response.content);
                     ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+                    turn_error = true;
                 }
                 break;  // Exit inner loop, wait for next user input
             }
@@ -219,6 +223,10 @@ void Agent::loop() {
         }
 
         if (non_interactive_) {
+            if (turn_error) {
+                exit_code_ = 1;
+                return;
+            }
             if (mode_ == AgentMode::Plan) {
                 // Plan turn complete — auto-transition to act and execute
                 transition_to(AgentMode::Act);
@@ -251,6 +259,11 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
             }
 
             if (requires_approval(tool_opt.value()->def)) {
+                if (non_interactive_) {
+                    return ToolResult::fail(
+                        "tool '" + call.name + "' requires approval but running in "
+                        "non-interactive mode — use -y to auto-approve");
+                }
                 Approval approval = ui_.request_approval(call);
                 if (approval != Approval::Accept) {
                     return ToolResult::fail("rejected by user");
@@ -320,7 +333,7 @@ bool Agent::handle_slash_command(std::string_view input) {
     }
 
     if (command == "clear") {
-        ContextManager new_ctx(config_.token_limit);
+        ContextManager new_ctx(config_.token_limit, config_.compaction_keep_recent);
         new_ctx.push_system(system_prompt());
         context_ = std::move(new_ctx);
         ui_.update_tokens(context_.total_tokens(), config_.token_limit);

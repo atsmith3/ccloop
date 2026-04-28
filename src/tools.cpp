@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <filesystem>
+#include <limits>
 #include <fnmatch.h>
 #include <regex>
 #include <set>
@@ -108,8 +109,28 @@ ToolResult tool_read_file(const ToolArgs& args) {
     std::ifstream file(*path);
     if (!file) return ToolResult::fail("File not found: " + *path);
 
+    auto offset_opt = arg_int(args, "offset");
+    auto limit_opt  = arg_int(args, "limit");
+
+    if (!offset_opt && !limit_opt) {
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        return ToolResult::ok(ss.str());
+    }
+
+    int start_line = offset_opt.value_or(1);
+    int max_lines  = limit_opt.value_or(std::numeric_limits<int>::max());
+    if (start_line < 1) start_line = 1;
+
     std::ostringstream ss;
-    ss << file.rdbuf();
+    std::string line;
+    int line_no = 0, lines_written = 0;
+    while (lines_written < max_lines && std::getline(file, line)) {
+        ++line_no;
+        if (line_no < start_line) continue;
+        ss << line << "\n";
+        ++lines_written;
+    }
     return ToolResult::ok(ss.str());
 }
 
@@ -406,6 +427,119 @@ ToolResult tool_delete_file(const ToolArgs& args) {
     }
 }
 
+ToolResult tool_delete_dir(const ToolArgs& args) {
+    std::string err;
+    auto path = arg_path(args, "path", err);
+    if (!path) return ToolResult::fail(err);
+
+    bool recursive = false;
+    auto rec_it = args.find("recursive");
+    if (rec_it != args.end()) {
+        if (rec_it->second.is_bool()) recursive = rec_it->second.as_bool();
+        else if (rec_it->second.is_string()) recursive = (rec_it->second.as_string() == "true");
+    }
+
+    try {
+        if (!fs::exists(*path)) return ToolResult::fail("not found: " + *path);
+        if (!fs::is_directory(*path)) return ToolResult::fail("not a directory: " + *path);
+        if (!recursive && !fs::is_empty(*path))
+            return ToolResult::fail("directory is not empty — set recursive=true to delete recursively");
+        uintmax_t removed = fs::remove_all(*path);
+        return ToolResult::ok("deleted: " + *path + " (" + std::to_string(removed) + " entries removed)");
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+}
+
+ToolResult tool_find_symbol(const ToolArgs& args) {
+    std::string err;
+    auto symbol_opt = arg_str(args, "symbol", err);
+    if (!symbol_opt) return ToolResult::fail(err);
+    const std::string& symbol = *symbol_opt;
+
+    // Map language name to glob(s)
+    std::string file_glob = "*";
+    auto lang_it = args.find("language");
+    if (lang_it != args.end() && lang_it->second.is_string()) {
+        std::string lang = lang_it->second.as_string();
+        if (lang == "cpp" || lang == "c++")          file_glob = "*.cpp;*.h;*.cc;*.cxx";
+        else if (lang == "c")                        file_glob = "*.c;*.h";
+        else if (lang == "python" || lang == "py")   file_glob = "*.py";
+        else if (lang == "rust")                     file_glob = "*.rs";
+        else if (lang == "go")                       file_glob = "*.go";
+        else if (lang == "javascript" || lang == "js") file_glob = "*.js;*.mjs;*.cjs";
+        else if (lang == "typescript" || lang == "ts") file_glob = "*.ts;*.tsx";
+    }
+
+    std::string search_path = ".";
+    auto path_it = args.find("path");
+    if (path_it != args.end() && path_it->second.is_string())
+        search_path = expand_tilde(path_it->second.as_string());
+
+    std::regex re;
+    try {
+        re = std::regex("\\b" + symbol + "\\b");
+    } catch (const std::regex_error& e) {
+        return ToolResult::fail("invalid symbol: " + std::string(e.what()));
+    }
+
+    std::vector<std::string> globs;
+    {
+        std::istringstream iss(file_glob);
+        std::string g;
+        while (std::getline(iss, g, ';'))
+            if (!g.empty()) globs.push_back(g);
+    }
+
+    static const std::set<std::string> skip_dirs = {
+        "venv", "env", ".venv", "node_modules", "__pycache__",
+        "dist", "build", ".tox", ".eggs", "site-packages"
+    };
+
+    std::ostringstream ss;
+    bool found_any = false, truncated = false;
+    try {
+        for (auto it = fs::recursive_directory_iterator(search_path);
+             it != fs::recursive_directory_iterator(); ++it) {
+            if (it->is_directory()) {
+                const std::string& dname = it->path().filename().string();
+                if (!dname.empty() && (dname[0] == '.' || skip_dirs.count(dname))) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+            }
+            if (!it->is_regular_file()) continue;
+            std::string fname = it->path().filename().string();
+            bool matches = false;
+            for (const auto& g : globs) {
+                if (fnmatch(g.c_str(), fname.c_str(), 0) == 0) { matches = true; break; }
+            }
+            if (!matches) continue;
+
+            std::ifstream file(it->path());
+            if (!file) continue;
+            std::string line;
+            int line_no = 0;
+            while (std::getline(file, line)) {
+                ++line_no;
+                if (line.size() > 2048) continue;
+                if (std::regex_search(line, re)) {
+                    if (found_any) ss << "\n";
+                    ss << it->path().string() << ":" << line_no << ": " << line;
+                    found_any = true;
+                }
+            }
+            if (ss.tellp() > 8000) { truncated = true; break; }
+        }
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+
+    if (!found_any) return ToolResult::ok("(no matches for '" + symbol + "')");
+    if (truncated) ss << "\n[... truncated — narrow with path= or language=]";
+    return ToolResult::ok(ss.str());
+}
+
 ToolResult tool_run_shell(const ToolArgs& args) {
     std::string err;
     auto command_opt = arg_str(args, "command", err);
@@ -610,8 +744,10 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
     {
         Tool tool;
         tool.def.name = "read_file";
-        tool.def.description = "Read the contents of a file";
-        tool.def.params.push_back({"path", "string", "Path to file", true});
+        tool.def.description = "Read the contents of a file. Use offset/limit to read a specific line range.";
+        tool.def.params.push_back({"path",   "string",  "Path to file",                                    true});
+        tool.def.params.push_back({"offset", "integer", "1-based first line to read (optional)",           false});
+        tool.def.params.push_back({"limit",  "integer", "Maximum number of lines to return (optional)",    false});
         tool.def.permission = "read";
         tool.fn = tool_read_file;
         tool.source = ToolSource::Local;
@@ -649,6 +785,22 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         tool.def.params.push_back({"path", "string", "Path to file or directory", true});
         tool.def.permission = "read";
         tool.fn = tool_file_info;
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    {
+        Tool tool;
+        tool.def.name = "find_symbol";
+        tool.def.description =
+            "Search for a symbol (function, class, variable) by name across source files. "
+            "Returns file:line matches with word-boundary matching. Use language= to restrict "
+            "to a specific file type (cpp, python, rust, go, javascript, typescript).";
+        tool.def.params.push_back({"symbol",   "string", "Symbol name to search for",                          true});
+        tool.def.params.push_back({"language", "string", "Language filter: cpp, python, rust, go, js, ts",     false});
+        tool.def.params.push_back({"path",     "string", "Root path to search (default: current directory)",   false});
+        tool.def.permission = "read";
+        tool.fn = tool_find_symbol;
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
@@ -698,6 +850,18 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
             tool.def.params.push_back({"path", "string", "Path to file", true});
             tool.def.permission = "delete";
             tool.fn = tool_delete_file;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+
+        {
+            Tool tool;
+            tool.def.name = "delete_dir";
+            tool.def.description = "Delete a directory. Set recursive=true to delete non-empty directories.";
+            tool.def.params.push_back({"path",      "string",  "Path to directory",                              true});
+            tool.def.params.push_back({"recursive", "boolean", "Delete non-empty directories recursively",       false});
+            tool.def.permission = "delete";
+            tool.fn = tool_delete_dir;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
         }

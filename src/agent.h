@@ -13,7 +13,7 @@ extern std::atomic<bool> should_interrupt;
 class Agent {
 public:
     Agent(Config config, Ui& ui, AgentMode initial_mode = AgentMode::Plan);
-    void run(const std::string& initial_prompt = "");
+    int run(const std::string& initial_prompt = "");
 
 private:
     Config         config_;
@@ -24,6 +24,7 @@ private:
     Ui&            ui_;
     std::string    pending_execution_;
     bool           non_interactive_ = false;
+    int            exit_code_        = 0;
 
     void loop();
     void compact_with_summary();

@@ -2,8 +2,8 @@
 #include "json.h"
 #include <sstream>
 
-ContextManager::ContextManager(size_t token_limit)
-    : token_limit_(token_limit) {}
+ContextManager::ContextManager(size_t token_limit, size_t keep_recent)
+    : token_limit_(token_limit), keep_recent_(keep_recent) {}
 
 void ContextManager::push_system(std::string content) {
     Message msg;
@@ -119,8 +119,8 @@ std::string ContextManager::extract_conversation_for_summary() const {
 
 void ContextManager::compact_to_summary(const std::string& summary) {
     size_t first_ns = index_of_first_non_system();
-    size_t keep_from = messages_.size() > first_ns + 4
-                     ? messages_.size() - 4 : first_ns;
+    size_t keep_from = messages_.size() > first_ns + keep_recent_
+                     ? messages_.size() - keep_recent_ : first_ns;
 
     Message sum_msg;
     sum_msg.role = Message::Role::User;
