@@ -149,6 +149,7 @@ ToolResult tool_list_dir(const ToolArgs& args) {
             ss << entry.path().filename().string();
             first = false;
         }
+        if (first) return ToolResult::ok("(directory is empty)");
         return ToolResult::ok(ss.str());
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
