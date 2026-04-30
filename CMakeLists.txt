@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(CURL REQUIRED)
+find_package(Threads REQUIRED)
 
 # Main binary (stub until all src files exist)
 add_executable(ccl
@@ -23,7 +24,7 @@ add_executable(ccl
     src/agent.cpp
     src/ui.cpp
 )
-target_link_libraries(ccl PRIVATE CURL::libcurl)
+target_link_libraries(ccl PRIVATE CURL::libcurl Threads::Threads)
 target_compile_options(ccl PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 
 # Test binary
@@ -49,6 +50,6 @@ add_executable(ccl_test
     src/llm_client.cpp
 )
 target_include_directories(ccl_test PRIVATE src tests)
-target_link_libraries(ccl_test PRIVATE CURL::libcurl)
+target_link_libraries(ccl_test PRIVATE CURL::libcurl Threads::Threads)
 target_compile_options(ccl_test PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 add_test(NAME ccl_tests COMMAND ccl_test)

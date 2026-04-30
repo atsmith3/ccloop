@@ -1,12 +1,7 @@
 #include "agent.h"
 #include <iostream>
 #include <atomic>
-
-static bool is_act_terminal(const std::string& content) {
-    return content.find("## Completed") != std::string::npos
-        || content.find("## Roadblock") != std::string::npos;
-}
-
+#include <future>
 
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode),
@@ -45,6 +40,12 @@ std::string Agent::system_prompt() const {
                 "  spawn_agent(prompt='Read src/agent.cpp and explain how the agent loop works')\n"
                 "  spawn_agent(prompt='Find all callers of compact() and report when it fires')\n"
                 "  spawn_agent(prompt='List src/ and summarize what each module does')\n\n"
+                "When independent research tasks can run simultaneously, call spawn_agent multiple\n"
+                "times in a single response — they execute in parallel and all results return\n"
+                "together before the next turn:\n\n"
+                "  spawn_agent(prompt='Read src/agent.cpp and explain the agent loop')\n"
+                "  spawn_agent(prompt='Read src/tools.cpp and list every tool and its permission level')\n"
+                "  spawn_agent(prompt='Run cmake --build build_local 2>&1 | tail -5 and report errors')\n\n"
                 "Important: do not call spawn_agent recursively. If you were invoked with a "
                 "specific focused task, complete it directly using tools — do not spawn further agents.\n\n"
                 "Never guess at file contents or project structure — always explore first. "
@@ -52,14 +53,13 @@ std::string Agent::system_prompt() const {
                 "When producing an implementation plan:\n"
                 "1. Explore the codebase thoroughly to understand existing patterns and conventions\n"
                 "2. Identify every file that will need to change\n"
-                "3. Write a clear numbered checklist using this exact format:\n\n"
-                "   ## Plan: <short-descriptive-slug>\n"
-                "   1. [ ] [action] — [file or target]\n"
-                "   2. [ ] [action] — [file or target]\n"
-                "   ...\n\n"
-                "   The slug must be kebab-case, 2-4 words (e.g. add-lcs-algorithm). "
-                "It will become the plan filename.\n"
-                "4. Call out risks, dependencies, or prerequisites\n\n"
+                "3. Call present_plan with a clear numbered checklist as the 'plan' argument:\n\n"
+                "   present_plan(plan=\"## Plan: <slug>\\n1. [ ] action — file\\n2. [ ] action — file\\n...\")\n\n"
+                "   The slug must be kebab-case, 2-4 words (e.g. add-lcs-algorithm).\n"
+                "   The user will accept, refine, or reject. On refinement, revise and call present_plan again.\n"
+                "4. Call out risks, dependencies, or prerequisites in the plan text\n\n"
+                "For simple questions that do not require a plan, answer directly then call:\n"
+                "  signal_completion(summary=\"one-sentence answer\")\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
                 "that you have not confirmed exist. Do not write or modify any files.";
         case AgentMode::Act:
@@ -80,18 +80,21 @@ std::string Agent::system_prompt() const {
                 "- Read the file back to verify\n"
                 "- Confirm: \"\\u2713 Step N complete\"\n"
                 "Do NOT pause between steps to ask permission. Complete all steps in one pass.\n\n"
-                "## Phase 3 — Completion report (always, without being asked)\n\n"
-                "  ## Completed\n"
-                "  **Task**: [one-line summary]\n"
-                "  **Created**: [new files, or \"none\"]\n"
-                "  **Modified**: [changed files, or \"none\"]\n"
-                "  **Steps**: N of N completed\n\n"
+                "## Phase 3 — Signal completion\n\n"
+                "When all steps are done, call:\n"
+                "  signal_completion(summary=\"Brief description of what was done\")\n\n"
+                "Do NOT output \"## Completed\" text — use the signal_completion tool.\n\n"
                 "## Keep this context lean — delegate heavy steps to sub-agents\n\n"
                 "For any plan step that involves reading files, making edits, and verifying — "
                 "spawn a sub-agent with the complete task description:\n\n"
                 "  spawn_agent(prompt='In src/foo.cpp edit function bar to do X. "
                 "Read the file first, apply the change with edit_file, verify by reading it back.')\n"
                 "  spawn_agent(prompt='Run cmake --build build && ./build/ccl_test. Report pass/fail.')\n\n"
+                "When multiple plan steps are independent (different files, no ordering dependency),\n"
+                "call spawn_agent for each in a single response — they run in parallel:\n\n"
+                "  spawn_agent(prompt='Edit src/foo.cpp: change function X to do Y. Read first, edit, verify.')\n"
+                "  spawn_agent(prompt='Edit src/bar.cpp: add function Z. Read first, write, verify.')\n"
+                "  spawn_agent(prompt='Run cmake --build build_local && ./build_local/ccl_test. Report pass/fail.')\n\n"
                 "The sub-agent returns a summary of what it did. Record that, mark the step done, "
                 "and move on. Do not re-read files the sub-agent already processed.\n\n"
                 "Only work directly (read_file, edit_file, write_file) for genuinely trivial "
@@ -191,13 +194,15 @@ void Agent::loop() {
                 // Assistant called tools — push message and execute them
                 context_.push_assistant(response.content);
                 handle_tool_calls(response.tool_calls);
+                if (signal_completion_called_ || plan_accepted_ || plan_rejected_) break;
                 continue;
             } else if (!response.content.empty()) {
                 // Normal text response — push and show
                 context_.push_assistant(response.content);
                 ui_.show_message("agent", response.content);
-                // Act mode: auto-continue until the model signals completion or a roadblock
-                if (mode_ == AgentMode::Act && !is_act_terminal(response.content)
+                // Act mode: auto-continue until signal_completion is called or a roadblock
+                if (mode_ == AgentMode::Act
+                        && response.content.find("## Roadblock") == std::string::npos
                         && !should_interrupt.load()) {
                     if (++act_steps >= kActStepLimit) {
                         ui_.show_error("[warning] Act step limit reached — stopping");
@@ -219,6 +224,38 @@ void Agent::loop() {
             should_interrupt = false;
             std::cout << "\n[Interrupted] Task cancelled. Type /quit to exit.\n";
             std::cout.flush();
+            plan_accepted_ = plan_rejected_ = signal_completion_called_ = false;
+            continue;
+        }
+
+        if (plan_accepted_) {
+            plan_accepted_ = false;
+            std::string plan_text = std::move(plan_accepted_text_);
+            ContextManager fresh_ctx(config_.token_limit, config_.compaction_keep_recent);
+            mode_ = AgentMode::Act;
+            rebuild_registry();
+            fresh_ctx.push_system(system_prompt());
+            context_ = std::move(fresh_ctx);
+            ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
+            pending_execution_ =
+                "Execute the following plan step by step without pausing.\n\n" + plan_text;
+            continue;
+        }
+
+        if (plan_rejected_) {
+            plan_rejected_ = false;
+            ContextManager fresh_ctx(config_.token_limit, config_.compaction_keep_recent);
+            fresh_ctx.push_system(system_prompt());
+            context_ = std::move(fresh_ctx);
+            ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+            std::cout << "[plan rejected] Context cleared. Ready for new task.\n";
+            std::cout.flush();
+            continue;
+        }
+
+        if (signal_completion_called_) {
+            signal_completion_called_ = false;
+            if (non_interactive_) return;
             continue;
         }
 
@@ -227,12 +264,7 @@ void Agent::loop() {
                 exit_code_ = 1;
                 return;
             }
-            if (mode_ == AgentMode::Plan) {
-                // Plan turn complete — auto-transition to act and execute
-                transition_to(AgentMode::Act);
-                continue;  // pending_execution_ is now set by transition_to()
-            }
-            return;  // Act turn complete — exit
+            return;
         }
     }
 }
@@ -247,42 +279,131 @@ bool Agent::requires_approval(const ToolDef& def) const {
 
 void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
     std::string combined;
+    std::vector<ToolCall> normal_calls;
 
+    // Pre-pass: intercept special agent-level tools
     for (const auto& call : calls) {
-        auto tool_opt = registry_.find(call.name);
-        ToolSource src = (tool_opt.has_value()) ? tool_opt.value()->source : ToolSource::Local;
-        ui_.show_tool_call(call, src);
+        if (call.name == "present_plan" || call.name == "signal_completion") {
+            ui_.show_tool_call(call, ToolSource::Local);
+            ToolResult r = (call.name == "present_plan")
+                ? handle_present_plan(call.args)
+                : handle_signal_completion(call.args);
+            ui_.show_tool_result(call, r);
+            if (!combined.empty()) combined += "\n\n";
+            combined += "[Tool: " + call.name + "]\n" + r.to_context_string();
+        } else {
+            normal_calls.push_back(call);
+        }
+    }
 
-        ToolResult result = [&]() -> ToolResult {
+    if (!normal_calls.empty()) {
+        struct PendingCall {
+            const ToolCall& call;
+            const Tool*     tool;
+            bool            approved = false;
+            std::string     reject_reason;
+        };
+
+        // Phase 1: Show all tool calls and collect approvals (sequential — stdin)
+        std::vector<PendingCall> pending;
+        pending.reserve(normal_calls.size());
+        for (const auto& call : normal_calls) {
+            auto tool_opt = registry_.find(call.name);
+            ToolSource src = tool_opt.has_value() ? tool_opt.value()->source : ToolSource::Local;
+            ui_.show_tool_call(call, src);
+
+            PendingCall pc{call, tool_opt.has_value() ? tool_opt.value() : nullptr, false, ""};
+
             if (!tool_opt.has_value()) {
-                return ToolResult::fail("Tool not found: " + call.name);
-            }
-
-            if (requires_approval(tool_opt.value()->def)) {
+                pc.reject_reason = "Tool not found: " + call.name;
+            } else if (requires_approval(tool_opt.value()->def)) {
                 if (non_interactive_) {
-                    return ToolResult::fail(
+                    pc.reject_reason =
                         "tool '" + call.name + "' requires approval but running in "
-                        "non-interactive mode — use -y to auto-approve");
+                        "non-interactive mode — use -y to auto-approve";
+                } else {
+                    Approval a = ui_.request_approval(call);
+                    if (a == Approval::Accept) pc.approved = true;
+                    else pc.reject_reason = "rejected by user";
                 }
-                Approval approval = ui_.request_approval(call);
-                if (approval != Approval::Accept) {
-                    return ToolResult::fail("rejected by user");
-                }
+            } else {
+                pc.approved = true;
             }
+            pending.push_back(std::move(pc));
+        }
 
-            return tool_opt.value()->fn(call.args);
-        }();
+        // Phase 2: Dispatch all approved tools in parallel
+        std::vector<std::future<ToolResult>> futures;
+        futures.reserve(pending.size());
+        for (const auto& pc : pending) {
+            if (!pc.approved) {
+                std::promise<ToolResult> p;
+                p.set_value(ToolResult::fail(pc.reject_reason));
+                futures.push_back(p.get_future());
+            } else {
+                auto fn   = pc.tool->fn;
+                auto args = pc.call.args;
+                futures.push_back(std::async(std::launch::async,
+                    [fn = std::move(fn), args = std::move(args)]() {
+                        return fn(args);
+                    }));
+            }
+        }
 
-        ui_.show_tool_result(call, result);
-
-        // Accumulate results into a single message
-        if (!combined.empty()) combined += "\n\n";
-        combined += "[Tool: " + call.name + "]\n" + result.to_context_string();
+        // Phase 3: Collect results in arrival order, show, and combine
+        for (size_t i = 0; i < pending.size(); ++i) {
+            ToolResult result = futures[i].get();
+            ui_.show_tool_result(pending[i].call, result);
+            if (!combined.empty()) combined += "\n\n";
+            combined += "[Tool: " + pending[i].call.name + "]\n" + result.to_context_string();
+        }
     }
 
     if (!combined.empty()) {
         context_.push_user(combined);
     }
+}
+
+ToolResult Agent::handle_present_plan(const ToolArgs& args) {
+    auto it = args.find("plan");
+    if (it == args.end() || !it->second.is_string())
+        return ToolResult::fail("present_plan: 'plan' argument required");
+    std::string plan_text = it->second.as_string();
+
+    ui_.show_plan(plan_text);
+
+    bool auto_accept = config_.permissions.auto_approve_shell || non_interactive_;
+    if (auto_accept) {
+        plan_accepted_      = true;
+        plan_accepted_text_ = plan_text;
+        return ToolResult::ok("Plan auto-accepted.");
+    }
+
+    std::string refinement;
+    PlanApproval decision = ui_.request_plan_approval(refinement);
+
+    switch (decision) {
+        case PlanApproval::Accept:
+            plan_accepted_      = true;
+            plan_accepted_text_ = plan_text;
+            return ToolResult::ok("Plan accepted. Transitioning to execution.");
+        case PlanApproval::Refine:
+            return ToolResult::ok("Refinement requested: " + refinement);
+        case PlanApproval::Reject:
+            plan_rejected_ = true;
+            return ToolResult::ok("Plan rejected by user. Returning to planning.");
+    }
+    return ToolResult::ok("");
+}
+
+ToolResult Agent::handle_signal_completion(const ToolArgs& args) {
+    auto it = args.find("summary");
+    std::string summary = (it != args.end() && it->second.is_string())
+        ? it->second.as_string()
+        : "(no summary provided)";
+    ui_.show_completion(summary);
+    signal_completion_called_ = true;
+    return ToolResult::ok("Completion signalled.");
 }
 
 bool Agent::handle_slash_command(std::string_view input) {
@@ -345,21 +466,10 @@ bool Agent::handle_slash_command(std::string_view input) {
 
 void Agent::transition_to(AgentMode next) {
     if (next == mode_) return;
-
-    AgentMode prev = mode_;
     mode_ = next;
     rebuild_registry();
     context_.replace_system(system_prompt());
     ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
-
-    // Auto-execute when switching Plan → Act
-    if (prev == AgentMode::Plan && next == AgentMode::Act) {
-        pending_execution_ =
-            "A plan was just produced above. "
-            "Immediately execute every task step in the plan without pausing. "
-            "Announce each step, confirm when done, "
-            "and output a completion report when all task steps are finished.";
-    }
 }
 
 void Agent::rebuild_registry() {

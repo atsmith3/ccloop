@@ -24,6 +24,12 @@ enum class Approval {
     Edit,
 };
 
+enum class PlanApproval {
+    Accept,
+    Refine,
+    Reject,
+};
+
 // Tool parameter definition
 struct ToolParam {
     std::string name;

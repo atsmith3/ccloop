@@ -805,6 +805,38 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         registry.register_tool(std::move(tool));
     }
 
+    // present_plan: Plan mode only
+    if (mode == AgentMode::Plan) {
+        Tool tool;
+        tool.def.name = "present_plan";
+        tool.def.description =
+            "Present the completed plan to the user for approval. "
+            "The user will accept (proceed to execution), request refinements, "
+            "or reject the plan. Call this when the plan is fully formed.";
+        tool.def.params.push_back({"plan", "string",
+            "The complete numbered plan text to present to the user", true});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // signal_completion: both modes
+    {
+        Tool tool;
+        tool.def.name = "signal_completion";
+        tool.def.description =
+            "Signal that the current task is complete and return to the user prompt. "
+            "In plan mode: use for simple answers that don't require a full plan. "
+            "In act mode: use when all plan steps are finished.";
+        tool.def.params.push_back({"summary", "string",
+            "One to three sentence summary of what was done or answered", true});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
     // Write tools (Act mode only)
     if (mode == AgentMode::Act) {
         {

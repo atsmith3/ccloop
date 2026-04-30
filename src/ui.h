@@ -16,6 +16,9 @@ public:
     void show_usage      (const LlmResponse::Usage& usage, size_t ctx_used, size_t ctx_limit);
     void show_error      (std::string_view msg);
 
-    Approval    request_approval(const ToolCall& call);
-    std::string wait_for_input();
+    Approval     request_approval    (const ToolCall& call);
+    PlanApproval request_plan_approval(std::string& refinement_out);
+    void         show_plan            (const std::string& plan);
+    void         show_completion      (const std::string& summary);
+    std::string  wait_for_input();
 };

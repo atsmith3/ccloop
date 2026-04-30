@@ -23,12 +23,18 @@ private:
     ToolRegistry   registry_;
     Ui&            ui_;
     std::string    pending_execution_;
-    bool           non_interactive_ = false;
-    int            exit_code_        = 0;
+    bool           non_interactive_          = false;
+    int            exit_code_                = 0;
+    bool           plan_accepted_            = false;
+    std::string    plan_accepted_text_;
+    bool           plan_rejected_            = false;
+    bool           signal_completion_called_ = false;
 
     void loop();
     void compact_with_summary();
     void handle_tool_calls(const std::vector<ToolCall>& calls);
+    ToolResult handle_present_plan(const ToolArgs& args);
+    ToolResult handle_signal_completion(const ToolArgs& args);
     bool requires_approval(const ToolDef& def) const;
     bool handle_slash_command(std::string_view input);
     void transition_to(AgentMode next);
