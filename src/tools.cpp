@@ -821,16 +821,32 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         registry.register_tool(std::move(tool));
     }
 
-    // signal_completion: both modes
+    // print: both modes — explicit output to user / parent agent
     {
         Tool tool;
-        tool.def.name = "signal_completion";
+        tool.def.name = "print";
         tool.def.description =
-            "Signal that the current task is complete and return to the user prompt. "
-            "In plan mode: use for simple answers that don't require a full plan. "
-            "In act mode: use when all plan steps are finished.";
-        tool.def.params.push_back({"summary", "string",
-            "One to three sentence summary of what was done or answered", true});
+            "Print a message to the user or parent agent. Use sparingly — only for "
+            "important findings, key decisions, or final answers. Do not use for "
+            "routine step announcements.";
+        tool.def.params.push_back({"message", "string", "The message to display", true});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // task_done: both modes
+    {
+        Tool tool;
+        tool.def.name = "task_done";
+        tool.def.description =
+            "Call when the current task is complete. "
+            "In plan mode: use after answering a simple question that doesn't need a full plan. "
+            "In act mode: call when all plan steps are finished.";
+        tool.def.params.push_back({"response", "string",
+            "The full response to return — can be a brief summary or a detailed explanation, "
+            "whatever best fits the request", true});
         tool.def.permission = "read";
         tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
         tool.source = ToolSource::Local;

@@ -4,8 +4,16 @@
 #include <iostream>
 #include <cctype>
 
+Ui::Ui(bool verbose) : verbose_(verbose) {}
+
 void Ui::show_message(std::string_view role, std::string_view content) {
+    if (!verbose_ && role == "system") return;
     std::cout << "[" << role << "] " << content << "\n\n";
+    std::cout.flush();
+}
+
+void Ui::print_output(std::string_view message) {
+    std::cout << message << "\n";
     std::cout.flush();
 }
 
@@ -16,6 +24,7 @@ static std::string truncate(const std::string& s, size_t max_len) {
 }
 
 void Ui::show_tool_call(const ToolCall& call, ToolSource source) {
+    if (!verbose_) return;
     std::cout << "[call] " << call.name;
 
     size_t arg_count = 0;
@@ -31,6 +40,7 @@ void Ui::show_tool_call(const ToolCall& call, ToolSource source) {
 }
 
 void Ui::show_tool_result(const ToolCall& /*call*/, const ToolResult& result) {
+    if (!verbose_) return;
     std::string status = result.success ? "OK" : "ERROR";
 
     if (result.success) {
@@ -50,11 +60,13 @@ void Ui::show_mode(AgentMode mode, size_t tokens_used, size_t token_limit) {
 }
 
 void Ui::update_tokens(size_t used, size_t limit) {
+    if (!verbose_) return;
     std::cout << "tokens: " << used << "/" << limit << "\n";
     std::cout.flush();
 }
 
 void Ui::show_usage(const LlmResponse::Usage& usage, size_t ctx_used, size_t ctx_limit) {
+    if (!verbose_) return;
     std::cout << "[tokens] in: " << usage.prompt_tokens
               << " | out: " << usage.completion_tokens;
     if (usage.cache_read_tokens > 0)

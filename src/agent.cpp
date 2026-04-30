@@ -58,8 +58,8 @@ std::string Agent::system_prompt() const {
                 "   The slug must be kebab-case, 2-4 words (e.g. add-lcs-algorithm).\n"
                 "   The user will accept, refine, or reject. On refinement, revise and call present_plan again.\n"
                 "4. Call out risks, dependencies, or prerequisites in the plan text\n\n"
-                "For simple questions that do not require a plan, answer directly then call:\n"
-                "  signal_completion(summary=\"one-sentence answer\")\n\n"
+                "For simple questions that do not require a plan, answer directly in text — no tool call needed.\n\n"
+                "Use print(message=...) to surface key findings mid-exploration. Keep output minimal.\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
                 "that you have not confirmed exist. Do not write or modify any files.";
         case AgentMode::Act:
@@ -75,15 +75,20 @@ std::string Agent::system_prompt() const {
                 "## Phase 2 — Execute every task step without pausing\n\n"
                 "For each numbered task step:\n"
                 "- Announce: \"## Step N: [description]\"\n"
-                "- Read any file before modifying it\n"
+                "- Read the file immediately before every edit_file call — your old_str must come\n"
+                "  from the most recent read of that file, not from memory\n"
+                "- Make one edit at a time; re-read before any subsequent edit to the same file\n"
                 "- Apply changes with write_file or edit_file\n"
                 "- Read the file back to verify\n"
                 "- Confirm: \"\\u2713 Step N complete\"\n"
-                "Do NOT pause between steps to ask permission. Complete all steps in one pass.\n\n"
+                "Do NOT pause between steps. Every response must include at least one tool call.\n"
+                "If edit_file returns \"old_str not found\", re-read the file with read_file, locate "
+                "the correct current text, and retry. Never abandon a step due to this error.\n\n"
                 "## Phase 3 — Signal completion\n\n"
                 "When all steps are done, call:\n"
-                "  signal_completion(summary=\"Brief description of what was done\")\n\n"
-                "Do NOT output \"## Completed\" text — use the signal_completion tool.\n\n"
+                "  task_done(response=\"Summary of what was done and any key results or findings\")\n\n"
+                "For conversational questions that don't require plan execution, answer in text — no tool call needed.\n\n"
+                "Use print(message=...) to surface important status or findings mid-execution.\n\n"
                 "## Keep this context lean — delegate heavy steps to sub-agents\n\n"
                 "For any plan step that involves reading files, making edits, and verifying — "
                 "spawn a sub-agent with the complete task description:\n\n"
@@ -194,24 +199,18 @@ void Agent::loop() {
                 // Assistant called tools — push message and execute them
                 context_.push_assistant(response.content);
                 handle_tool_calls(response.tool_calls);
-                if (signal_completion_called_ || plan_accepted_ || plan_rejected_) break;
+                if (task_done_called_ || plan_accepted_ || plan_rejected_) break;
+                if (++act_steps >= kActStepLimit) {
+                    ui_.show_error("[warning] Act step limit reached — stopping");
+                    break;
+                }
                 continue;
             } else if (!response.content.empty()) {
-                // Normal text response — push and show
+                // Text-only response — treat as implicit task_done.
+                // Continuation is driven by tool calls only; text = done.
                 context_.push_assistant(response.content);
-                ui_.show_message("agent", response.content);
-                // Act mode: auto-continue until signal_completion is called or a roadblock
-                if (mode_ == AgentMode::Act
-                        && response.content.find("## Roadblock") == std::string::npos
-                        && !should_interrupt.load()) {
-                    if (++act_steps >= kActStepLimit) {
-                        ui_.show_error("[warning] Act step limit reached — stopping");
-                        break;
-                    }
-                    context_.push_user("Continue.");
-                    ui_.update_tokens(context_.total_tokens(), config_.token_limit);
-                    continue;
-                }
+                ui_.show_completion(response.content);
+                task_done_called_ = true;
             } else {
                 // Empty content, no tool calls — don't pollute context
                 ui_.show_error("[warning] empty response from model");
@@ -224,7 +223,7 @@ void Agent::loop() {
             should_interrupt = false;
             std::cout << "\n[Interrupted] Task cancelled. Type /quit to exit.\n";
             std::cout.flush();
-            plan_accepted_ = plan_rejected_ = signal_completion_called_ = false;
+            plan_accepted_ = plan_rejected_ = task_done_called_ = false;
             continue;
         }
 
@@ -253,8 +252,8 @@ void Agent::loop() {
             continue;
         }
 
-        if (signal_completion_called_) {
-            signal_completion_called_ = false;
+        if (task_done_called_) {
+            task_done_called_ = false;
             if (non_interactive_) return;
             continue;
         }
@@ -283,11 +282,16 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
 
     // Pre-pass: intercept special agent-level tools
     for (const auto& call : calls) {
-        if (call.name == "present_plan" || call.name == "signal_completion") {
+        if (call.name == "present_plan" || call.name == "task_done"
+                || call.name == "print") {
             ui_.show_tool_call(call, ToolSource::Local);
-            ToolResult r = (call.name == "present_plan")
-                ? handle_present_plan(call.args)
-                : handle_signal_completion(call.args);
+            ToolResult r;
+            if (call.name == "present_plan")
+                r = handle_present_plan(call.args);
+            else if (call.name == "task_done")
+                r = handle_task_done(call.args);
+            else
+                r = handle_print(call.args);
             ui_.show_tool_result(call, r);
             if (!combined.empty()) combined += "\n\n";
             combined += "[Tool: " + call.name + "]\n" + r.to_context_string();
@@ -396,14 +400,22 @@ ToolResult Agent::handle_present_plan(const ToolArgs& args) {
     return ToolResult::ok("");
 }
 
-ToolResult Agent::handle_signal_completion(const ToolArgs& args) {
-    auto it = args.find("summary");
+ToolResult Agent::handle_task_done(const ToolArgs& args) {
+    auto it = args.find("response");
     std::string summary = (it != args.end() && it->second.is_string())
         ? it->second.as_string()
-        : "(no summary provided)";
+        : "(no response provided)";
     ui_.show_completion(summary);
-    signal_completion_called_ = true;
+    task_done_called_ = true;
     return ToolResult::ok("Completion signalled.");
+}
+
+ToolResult Agent::handle_print(const ToolArgs& args) {
+    auto it = args.find("message");
+    if (it == args.end() || !it->second.is_string())
+        return ToolResult::fail("print: 'message' argument required");
+    ui_.print_output(it->second.as_string());
+    return ToolResult::ok("Printed.");
 }
 
 bool Agent::handle_slash_command(std::string_view input) {
