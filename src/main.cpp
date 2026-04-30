@@ -23,7 +23,6 @@ static void print_help() {
               << "  --mode|-m plan|act       Start in specified mode\n"
               << "  --prompt|-p <text>       Run one turn non-interactively then exit\n"
               << "  --yolo|-y                Auto-approve all tool calls\n"
-              << "  --verbose|-v             Show model responses and tool details\n"
               << "  --debug                  Log raw LLM responses to stderr\n"
               << "  --help, -h               Show this help\n";
 }
@@ -34,7 +33,6 @@ int main(int argc, char* argv[]) {
     std::string cli_endpoint;
     std::string cli_prompt;
     bool cli_debug   = false;
-    bool cli_verbose = false;
     bool cli_yolo    = false;
     AgentMode initial_mode = AgentMode::Plan;
 
@@ -57,8 +55,6 @@ int main(int argc, char* argv[]) {
             cli_prompt = argv[++i];
         } else if (arg == "--yolo" || arg == "-y") {
             cli_yolo = true;
-        } else if (arg == "--verbose" || arg == "-v") {
-            cli_verbose = true;
         } else if (arg == "--debug") {
             cli_debug = true;
         } else if (arg == "--help" || arg == "-h") {
@@ -81,9 +77,6 @@ int main(int argc, char* argv[]) {
     if (cli_debug) {
         loaded_config.debug = true;
     }
-    if (cli_verbose) {
-        loaded_config.verbose = true;
-    }
     if (cli_yolo) {
         loaded_config.permissions.auto_approve_read   = true;
         loaded_config.permissions.auto_approve_write  = true;
@@ -105,7 +98,7 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &sa_term, nullptr);
 
     // Run agent
-    Ui ui(loaded_config.verbose);
+    Ui ui;
     Agent agent(loaded_config, ui, initial_mode);
     return agent.run(cli_prompt);
 }
