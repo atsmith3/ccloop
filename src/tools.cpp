@@ -836,23 +836,6 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         registry.register_tool(std::move(tool));
     }
 
-    // task_done: both modes
-    {
-        Tool tool;
-        tool.def.name = "task_done";
-        tool.def.description =
-            "Call when the current task is complete. "
-            "In plan mode: use after answering a simple question that doesn't need a full plan. "
-            "In act mode: call when all plan steps are finished.";
-        tool.def.params.push_back({"response", "string",
-            "The full response to return — can be a brief summary or a detailed explanation, "
-            "whatever best fits the request", true});
-        tool.def.permission = "read";
-        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
-        tool.source = ToolSource::Local;
-        registry.register_tool(std::move(tool));
-    }
-
     // Write tools (Act mode only)
     if (mode == AgentMode::Act) {
         {

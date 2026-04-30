@@ -184,8 +184,8 @@ TEST(tool_registry_definitions_count) {
     ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
     auto defs = registry.definitions();
-    // 4 read-only tools + find_symbol + present_plan + print + signal_completion + run_shell + spawn_agent
-    CHECK_EQ(defs.size(), size_t(10));
+    // 4 read-only tools + find_symbol + present_plan + print + run_shell + spawn_agent
+    CHECK_EQ(defs.size(), size_t(9));
 }
 
 TEST(tool_result_ok_fields) {
@@ -421,8 +421,8 @@ TEST(tool_registry_act_mode_has_write_tools) {
     ToolRegistry registry = make_registry(AgentMode::Act, cfg);
 
     auto defs = registry.definitions();
-    // Should have 14 tools: 4 read-only + find_symbol + print + signal_completion + run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir, delete_file, delete_dir)
-    CHECK_EQ(defs.size(), size_t(14));
+    // Should have 13 tools: 4 read-only + find_symbol + print + run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir, delete_file, delete_dir)
+    CHECK_EQ(defs.size(), size_t(13));
 
     // Verify write tools are present
     auto write_file = registry.find("write_file");

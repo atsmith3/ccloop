@@ -34,7 +34,6 @@ private:
     void compact_with_summary();
     void handle_tool_calls(const std::vector<ToolCall>& calls);
     ToolResult handle_present_plan(const ToolArgs& args);
-    ToolResult handle_task_done(const ToolArgs& args);
     ToolResult handle_print(const ToolArgs& args);
     bool requires_approval(const ToolDef& def) const;
     bool handle_slash_command(std::string_view input);

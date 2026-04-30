@@ -85,9 +85,8 @@ std::string Agent::system_prompt() const {
                 "If edit_file returns \"old_str not found\", re-read the file with read_file, locate "
                 "the correct current text, and retry. Never abandon a step due to this error.\n\n"
                 "## Phase 3 — Signal completion\n\n"
-                "When all steps are done, call:\n"
-                "  task_done(response=\"Summary of what was done and any key results or findings\")\n\n"
-                "For conversational questions that don't require plan execution, answer in text — no tool call needed.\n\n"
+                "When all steps are done, respond with a text summary of what was accomplished.\n\n"
+                "For conversational questions that don't require plan execution, answer in text.\n\n"
                 "Use print(message=...) to surface important status or findings mid-execution.\n\n"
                 "## Keep this context lean — delegate heavy steps to sub-agents\n\n"
                 "For any plan step that involves reading files, making edits, and verifying — "
@@ -282,16 +281,11 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
 
     // Pre-pass: intercept special agent-level tools
     for (const auto& call : calls) {
-        if (call.name == "present_plan" || call.name == "task_done"
-                || call.name == "print") {
+        if (call.name == "present_plan" || call.name == "print") {
             ui_.show_tool_call(call, ToolSource::Local);
-            ToolResult r;
-            if (call.name == "present_plan")
-                r = handle_present_plan(call.args);
-            else if (call.name == "task_done")
-                r = handle_task_done(call.args);
-            else
-                r = handle_print(call.args);
+            ToolResult r = (call.name == "present_plan")
+                ? handle_present_plan(call.args)
+                : handle_print(call.args);
             ui_.show_tool_result(call, r);
             if (!combined.empty()) combined += "\n\n";
             combined += "[Tool: " + call.name + "]\n" + r.to_context_string();
@@ -398,16 +392,6 @@ ToolResult Agent::handle_present_plan(const ToolArgs& args) {
             return ToolResult::ok("Plan rejected by user. Returning to planning.");
     }
     return ToolResult::ok("");
-}
-
-ToolResult Agent::handle_task_done(const ToolArgs& args) {
-    auto it = args.find("response");
-    std::string summary = (it != args.end() && it->second.is_string())
-        ? it->second.as_string()
-        : "(no response provided)";
-    ui_.show_completion(summary);
-    task_done_called_ = true;
-    return ToolResult::ok("Completion signalled.");
 }
 
 ToolResult Agent::handle_print(const ToolArgs& args) {
