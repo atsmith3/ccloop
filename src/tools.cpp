@@ -149,7 +149,7 @@ ToolResult tool_list_dir(const ToolArgs& args) {
             ss << entry.path().filename().string();
             first = false;
         }
-        if (first) return ToolResult::ok("(directory is empty)");
+        if (first) return ToolResult::ok("(directory is empty): " + *path);
         return ToolResult::ok(ss.str());
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
@@ -325,7 +325,9 @@ ToolResult tool_write_file(const ToolArgs& args) {
 
         std::string write_err = atomic_write(*path, *new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok("Written: " + *path);
+        int line_count = (int)std::count(new_content->begin(), new_content->end(), '\n');
+        if (!new_content->empty() && new_content->back() != '\n') ++line_count;
+        return ToolResult::ok("Written: " + *path + " (" + std::to_string(line_count) + " lines)");
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -353,7 +355,15 @@ ToolResult tool_edit_file(const ToolArgs& args) {
         std::string new_content = content.substr(0, pos) + *new_str + content.substr(pos + old_str->size());
         std::string write_err = atomic_write(*path, new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok("Edited: " + *path);
+        auto count_lines = [](const std::string& s) -> int {
+            if (s.empty()) return 0;
+            int n = (int)std::count(s.begin(), s.end(), '\n');
+            if (s.back() != '\n') ++n;
+            return n;
+        };
+        int delta = count_lines(*new_str) - count_lines(*old_str);
+        std::string sign = (delta >= 0) ? "+" : "";
+        return ToolResult::ok("Edited: " + *path + " (" + sign + std::to_string(delta) + " lines)");
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }

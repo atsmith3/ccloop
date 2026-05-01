@@ -265,7 +265,7 @@ TEST(tool_write_file_diff_in_result) {
 
     ToolResult result = tool_write_file(args);
     CHECK(result.success);
-    CHECK(result.content == "Written: " + file_path);
+    CHECK(result.content == "Written: " + file_path + " (2 lines)");
 }
 
 TEST(tool_write_file_atomic_no_tmp_remaining) {
@@ -507,7 +507,7 @@ TEST(tool_edit_file_diff_in_result) {
 
     ToolResult result = tool_edit_file(args);
     CHECK(result.success);
-    CHECK(result.content == "Edited: " + file_path);
+    CHECK(result.content == "Edited: " + file_path + " (+0 lines)");
 }
 
 // ============================================================================
