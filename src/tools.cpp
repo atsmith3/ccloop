@@ -636,7 +636,8 @@ ToolResult tool_run_shell(const ToolArgs& args) {
         return ToolResult::fail("exit " + std::to_string(exit_code) + ": " + output.str());
     }
 
-    return ToolResult::ok(output.str());
+    std::string result = output.str();
+    return ToolResult::ok(result.empty() ? "exit 0" : result);
 }
 
 // ============================================================================
