@@ -307,44 +307,6 @@ static std::string atomic_write(const std::string& path, const std::string& cont
     return "";
 }
 
-// Helper: Generate a unified diff (simple line-based)
-static std::string generate_diff(const std::string& old_content, const std::string& new_content, const std::string& path) {
-    auto split_lines = [](const std::string& s) {
-        std::vector<std::string> lines;
-        std::istringstream iss(s);
-        std::string line;
-        while (std::getline(iss, line)) lines.push_back(line);
-        return lines;
-    };
-
-    std::vector<std::string> old_lines = split_lines(old_content);
-    std::vector<std::string> new_lines = split_lines(new_content);
-
-    if (old_lines.size() > 500 || new_lines.size() > 500) {
-        return "content changed: " + std::to_string(old_content.size()) + " bytes -> " +
-               std::to_string(new_content.size()) + " bytes";
-    }
-
-    std::ostringstream diff;
-    diff << "--- " << path << " (old)\n";
-    diff << "+++ " << path << " (new)\n";
-    diff << "@@ -1," << old_lines.size() << " +1," << new_lines.size() << " @@\n";
-
-    size_t old_idx = 0, new_idx = 0;
-    while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
-        if (old_idx < old_lines.size() && new_idx < new_lines.size() &&
-            old_lines[old_idx] == new_lines[new_idx]) {
-            diff << " " << old_lines[old_idx] << "\n";
-            ++old_idx; ++new_idx;
-        } else if (old_idx < old_lines.size() &&
-                   (new_idx >= new_lines.size() || old_lines[old_idx] != new_lines[new_idx])) {
-            diff << "-" << old_lines[old_idx++] << "\n";
-        } else {
-            diff << "+" << new_lines[new_idx++] << "\n";
-        }
-    }
-    return diff.str();
-}
 
 ToolResult tool_write_file(const ToolArgs& args) {
     std::string err;
@@ -361,10 +323,9 @@ ToolResult tool_write_file(const ToolArgs& args) {
         if (old_content == *new_content)
             return ToolResult::ok("(no changes) " + *path + " already has identical content.");
 
-        std::string diff = generate_diff(old_content, *new_content, *path);
         std::string write_err = atomic_write(*path, *new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok("Written: " + *path + "\n" + diff);
+        return ToolResult::ok("Written: " + *path);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -390,10 +351,9 @@ ToolResult tool_edit_file(const ToolArgs& args) {
             return ToolResult::fail("old_str is ambiguous (appears more than once)");
 
         std::string new_content = content.substr(0, pos) + *new_str + content.substr(pos + old_str->size());
-        std::string diff = generate_diff(content, new_content, *path);
         std::string write_err = atomic_write(*path, new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok("Edited: " + *path + "\n" + diff);
+        return ToolResult::ok("Edited: " + *path);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }

@@ -173,7 +173,6 @@ void Agent::loop() {
         }
 
         context_.push_user(input);
-        seen_calls_.clear();
 
         // Main interaction loop: keep calling LLM until we get text response
         int act_steps = 0;
@@ -281,6 +280,7 @@ bool Agent::requires_approval(const ToolDef& def) const {
 }
 
 void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
+    seen_calls_.clear();
     std::string combined;
     std::vector<ToolCall> normal_calls;
 

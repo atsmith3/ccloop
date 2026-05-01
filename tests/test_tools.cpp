@@ -265,8 +265,7 @@ TEST(tool_write_file_diff_in_result) {
 
     ToolResult result = tool_write_file(args);
     CHECK(result.success);
-    // Diff should be in content
-    CHECK(result.content.find("+++") != std::string::npos || result.content.find("line1") != std::string::npos);
+    CHECK(result.content == "Written: " + file_path);
 }
 
 TEST(tool_write_file_atomic_no_tmp_remaining) {
@@ -508,8 +507,7 @@ TEST(tool_edit_file_diff_in_result) {
 
     ToolResult result = tool_edit_file(args);
     CHECK(result.success);
-    CHECK(result.content.find("lineX") != std::string::npos ||
-          result.content.find("+++")   != std::string::npos);
+    CHECK(result.content == "Edited: " + file_path);
 }
 
 // ============================================================================
