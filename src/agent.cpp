@@ -1,4 +1,5 @@
 #include "agent.h"
+#include <algorithm>
 #include <iostream>
 #include <atomic>
 #include <future>
@@ -76,7 +77,10 @@ std::string Agent::system_prompt() const {
                 "Work through all steps continuously. A text-only response (no tool calls) signals\n"
                 "that ALL work is complete — never emit one between steps.\n\n"
                 "Rules:\n"
-                "- Every response during execution must include at least one tool call\n"
+                "- While steps remain incomplete, always include a tool call — do not emit a\n"
+                "  standalone acknowledgment between steps\n"
+                "- Once all steps are verified done (files written, no pending changes), respond\n"
+                "  with a text summary only — no trailing tool call\n"
                 "- Read the file immediately before every edit_file call — old_str must come from\n"
                 "  the most recent read, not from memory\n"
                 "- Make one edit at a time; re-read before any subsequent edit to the same file\n"
@@ -169,6 +173,7 @@ void Agent::loop() {
         }
 
         context_.push_user(input);
+        seen_calls_.clear();
 
         // Main interaction loop: keep calling LLM until we get text response
         int act_steps = 0;
@@ -327,6 +332,19 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
             } else {
                 pc.approved = true;
             }
+
+            if (pc.approved) {
+                std::string key = call.name + ":";
+                std::vector<std::pair<std::string, std::string>> kv;
+                for (const auto& [k, v] : call.args) kv.push_back({k, to_json(v)});
+                std::sort(kv.begin(), kv.end());
+                for (const auto& [k, v] : kv) key += k + "=" + v + ";";
+                if (!seen_calls_.insert(std::hash<std::string>{}(key)).second) {
+                    pc.approved = false;
+                    pc.reject_reason = "(skipped) Identical call already executed this turn.";
+                }
+            }
+
             pending.push_back(std::move(pc));
         }
 

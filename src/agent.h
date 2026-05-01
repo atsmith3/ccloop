@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <unordered_set>
 #include "config.h"
 #include "context.h"
 #include "tools.h"
@@ -29,6 +30,7 @@ private:
     std::string    plan_accepted_text_;
     bool           plan_rejected_            = false;
     bool           task_done_called_          = false;
+    std::unordered_set<size_t> seen_calls_;
 
     void loop();
     void compact_with_summary();

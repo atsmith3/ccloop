@@ -358,10 +358,13 @@ ToolResult tool_write_file(const ToolArgs& args) {
             if (file) { std::ostringstream ss; ss << file.rdbuf(); old_content = ss.str(); }
         }
 
+        if (old_content == *new_content)
+            return ToolResult::ok("(no changes) " + *path + " already has identical content.");
+
         std::string diff = generate_diff(old_content, *new_content, *path);
         std::string write_err = atomic_write(*path, *new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok(diff);
+        return ToolResult::ok("Written: " + *path + "\n" + diff);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -390,7 +393,7 @@ ToolResult tool_edit_file(const ToolArgs& args) {
         std::string diff = generate_diff(content, new_content, *path);
         std::string write_err = atomic_write(*path, new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok(diff);
+        return ToolResult::ok("Edited: " + *path + "\n" + diff);
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
