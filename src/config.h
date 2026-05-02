@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_set>
 #include "types.h"
+#include "connector.h"
 
 struct Permissions {
     bool auto_approve_read   = true;   // read_file, list_dir, search_files, file_info

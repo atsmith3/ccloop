@@ -8,7 +8,7 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 - **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
 - **Tool-use:** Read files, search code, write files atomically, run shell commands
 - **MCP tools:** Connect to any MCP server over SSE/HTTP — tools appear alongside built-in tools
-- **Multi-connector:** OpenAI JSON, Qwen XML tool calling, and AWS Bedrock — selected via one config line
+- **Multi-connector:** OpenAI JSON and AWS Bedrock — selected via one config line
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
 - **Supply-chain safe:** Custom minimal TOML/JSON parsers, custom test harness, all from stdlib
 
@@ -233,10 +233,10 @@ tokens: 1203/8000
              │               └──────────┬──────────────┘
 ┌────────────▼────────────┐             │
 │   Connector (factory)   │  ┌──────────▼──────────────┐
-├─────────┬───────┬───────┤  │      McpClient(s)       │
-│ QwenXml │OpenAI │Bedrock│  │  JSON-RPC · SSE/HTTP    │
-│ XML tc  │JSON tc│SigV4  │  └─────────────────────────┘
-└─────────┴───────┴───────┘
+├────────────┬────────────┤  │      McpClient(s)       │
+│ OpenAI     │ Bedrock    │  │  JSON-RPC · SSE/HTTP    │
+│ JSON tc    │ SigV4      │  └─────────────────────────┘
+└────────────┴────────────┘
 
 ─────────────────────────────────────────────────────
  json · config · context · types · ui
@@ -301,7 +301,6 @@ ccl/
 │   ├── mcp_client.h/cpp         -- MCP client (JSON-RPC over SSE/HTTP)
 │   ├── connector.h/cpp          -- Connector interface + factory
 │   ├── connector_base.h/cpp     -- shared HTTP/retry layer
-│   ├── connector_qwen.h/cpp     -- OpenAI endpoint + XML tool calling
 │   ├── connector_openai.h/cpp   -- OpenAI endpoint + JSON tool calling
 │   ├── connector_bedrock.h/cpp  -- AWS Bedrock Converse API + SigV4
 │   ├── llm_client.h/cpp         -- thin facade over Connector
