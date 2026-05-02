@@ -1,15 +1,12 @@
 #pragma once
 
-#include <atomic>
 #include <unordered_set>
 #include "config.h"
 #include "context.h"
 #include "tools.h"
 #include "llm_client.h"
+#include "signals.h"
 #include "ui.h"
-
-extern std::atomic<bool> should_exit;
-extern std::atomic<bool> should_interrupt;
 
 class Agent {
 public:

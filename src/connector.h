@@ -4,6 +4,12 @@
 #include <vector>
 #include "types.h"
 
+// LLM connector type — lives here so new connectors don't require editing types.h
+enum class ConnectorType {
+    OpenAiJson, // OpenAI completions + JSON tools array in request
+    Bedrock,    // AWS Bedrock Converse API + SigV4
+};
+
 class ContextManager;
 struct Config;
 

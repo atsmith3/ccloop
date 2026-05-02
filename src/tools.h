@@ -13,11 +13,16 @@ class ContextManager;
 
 using ToolFn = std::function<ToolResult(const ToolArgs&)>;
 
+// Handlers for agent-native tools (run sequentially in the agent pre-pass, may block on I/O).
+// Pass these into make_registry so new agent-native tools need no changes in agent.cpp.
+using AgentHandlers = std::unordered_map<std::string, ToolFn>;
+
 struct Tool {
     ToolDef    def;
     ToolFn     fn;
-    ToolSource source     = ToolSource::Local;
-    std::string mcp_server = "";
+    ToolSource source       = ToolSource::Local;
+    std::string mcp_server  = "";
+    bool        agent_native = false;  // true → run in pre-pass (sequential), not thread pool
 };
 
 class ToolRegistry {
@@ -31,8 +36,12 @@ private:
     std::unordered_map<std::string, size_t> index_;
 };
 
-// Factory — builds registry based on mode
-ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive = false);
+// Factory — builds registry based on mode.
+// Pass handlers for agent-native tools (present_plan, print, ask_user) so their fn fields
+// are wired up without hardcoding names in agent.cpp.
+ToolRegistry make_registry(AgentMode mode, const Config& cfg,
+                            bool non_interactive = false,
+                            const AgentHandlers& handlers = {});
 
 // Read-only tools (registered in all modes)
 ToolResult tool_read_file    (const ToolArgs& args);

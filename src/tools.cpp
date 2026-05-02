@@ -716,7 +716,7 @@ ToolResult tool_spawn_agent(const ToolArgs& args, const std::string& config_path
 // Registry factory
 // ============================================================================
 
-ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive) {
+ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive, const AgentHandlers& handlers) {
     ToolRegistry registry;
 
     // Read-only tools: always registered
@@ -795,7 +795,9 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
         tool.def.params.push_back({"plan", "string",
             "The complete numbered plan text to present to the user", true});
         tool.def.permission = "read";
-        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.agent_native = true;
+        auto h = handlers.find("present_plan");
+        tool.fn = (h != handlers.end()) ? h->second : [](const ToolArgs&) { return ToolResult::ok(""); };
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
@@ -810,7 +812,9 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
             "routine step announcements.";
         tool.def.params.push_back({"message", "string", "The message to display", true});
         tool.def.permission = "read";
-        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.agent_native = true;
+        auto h = handlers.find("print");
+        tool.fn = (h != handlers.end()) ? h->second : [](const ToolArgs&) { return ToolResult::ok(""); };
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
@@ -827,7 +831,9 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
         tool.def.params.push_back({"options",  "string",
             "Optional semicolon-separated list of choices, e.g. \"Option A;Option B\"", false});
         tool.def.permission = "read";
-        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.agent_native = true;
+        auto h = handlers.find("ask_user");
+        tool.fn = (h != handlers.end()) ? h->second : [](const ToolArgs&) { return ToolResult::ok(""); };
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }

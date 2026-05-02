@@ -8,7 +8,9 @@
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode),
       context_(config.token_limit, config.compaction_keep_recent), llm_(config),
-      registry_(make_registry(initial_mode, config)), ui_(ui) {}
+      ui_(ui) {
+    rebuild_registry();
+}
 
 int Agent::run(const std::string& initial_prompt) {
     context_.push_system(system_prompt());
@@ -293,11 +295,11 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
 
     // Pre-pass: intercept special agent-level tools
     for (const auto& call : calls) {
-        if (call.name == "present_plan" || call.name == "print" || call.name == "ask_user") {
-            ui_.show_tool_call(call, ToolSource::Local);
-            ToolResult r = (call.name == "present_plan") ? handle_present_plan(call.args)
-                         : (call.name == "ask_user")     ? handle_ask_user(call.args)
-                         :                                  handle_print(call.args);
+        auto tool_opt = registry_.find(call.name);
+        if (tool_opt.has_value() && tool_opt.value()->agent_native) {
+            // Agent-native tools run sequentially in the pre-pass (they may block on user I/O)
+            ui_.show_tool_call(call, tool_opt.value()->source);
+            ToolResult r = tool_opt.value()->fn(call.args);
             ui_.show_tool_result(call, r);
             if (!combined.empty()) combined += "\n\n";
             combined += "[Tool: " + call.name + "]\n" + r.to_context_string();
@@ -516,5 +518,10 @@ void Agent::transition_to(AgentMode next) {
 }
 
 void Agent::rebuild_registry() {
-    registry_ = make_registry(mode_, config_, non_interactive_);
+    AgentHandlers handlers = {
+        {"present_plan", [this](const ToolArgs& a) { return handle_present_plan(a); }},
+        {"print",        [this](const ToolArgs& a) { return handle_print(a); }},
+        {"ask_user",     [this](const ToolArgs& a) { return handle_ask_user(a); }},
+    };
+    registry_ = make_registry(mode_, config_, non_interactive_, handlers);
 }
