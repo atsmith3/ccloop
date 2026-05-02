@@ -4,6 +4,7 @@
 #include "config.h"
 #include "agent.h"
 #include "ui.h"
+#include "version.h"
 
 static void sigint_handler(int) {
     should_interrupt = true;
@@ -11,6 +12,12 @@ static void sigint_handler(int) {
 
 static void sigterm_handler(int) {
     should_exit = true;
+}
+
+static void print_version() {
+    std::cout << "ccl " << CCL_VERSION    << "\n"
+              << "Build:  " << CCL_BUILD_TYPE << "\n"
+              << "Flags:  " << CCL_CXX_FLAGS  << "\n";
 }
 
 static void print_help() {
@@ -24,6 +31,7 @@ static void print_help() {
               << "  --prompt|-p <text>       Run one turn non-interactively then exit\n"
               << "  --yolo|-y                Auto-approve all tool calls\n"
               << "  --debug                  Log raw LLM responses to stderr\n"
+              << "  --version, -v            Print version and build info\n"
               << "  --help, -h               Show this help\n";
 }
 
@@ -57,6 +65,9 @@ int main(int argc, char* argv[]) {
             cli_yolo = true;
         } else if (arg == "--debug") {
             cli_debug = true;
+        } else if (arg == "--version" || arg == "-v") {
+            print_version();
+            return 0;
         } else if (arg == "--help" || arg == "-h") {
             print_help();
             return 0;
