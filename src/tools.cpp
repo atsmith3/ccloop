@@ -812,13 +812,9 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
             "routine step announcements.";
         tool.def.params.push_back({"message", "string", "The message to display", true});
         tool.def.permission = "read";
-<<<<<<< HEAD
         tool.agent_native = true;
         auto h = handlers.find("print");
         tool.fn = (h != handlers.end()) ? h->second : [](const ToolArgs&) { return ToolResult::ok(""); };
-=======
-        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
->>>>>>> main
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
@@ -835,13 +831,9 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
         tool.def.params.push_back({"options",  "string",
             "Optional semicolon-separated list of choices, e.g. \"Option A;Option B\"", false});
         tool.def.permission = "read";
-<<<<<<< HEAD
         tool.agent_native = true;
         auto h = handlers.find("ask_user");
         tool.fn = (h != handlers.end()) ? h->second : [](const ToolArgs&) { return ToolResult::ok(""); };
-=======
-        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
->>>>>>> main
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
