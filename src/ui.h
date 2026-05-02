@@ -22,4 +22,5 @@ public:
     void         show_plan            (const std::string& plan);
     void         show_completion      (const std::string& summary);
     std::string  wait_for_input();
+    std::string  ask_user(const std::string& question, const std::vector<std::string>& options);
 };

@@ -32,7 +32,7 @@ private:
 };
 
 // Factory — builds registry based on mode
-ToolRegistry make_registry(AgentMode mode, const Config& cfg);
+ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive = false);
 
 // Read-only tools (registered in all modes)
 ToolResult tool_read_file    (const ToolArgs& args);

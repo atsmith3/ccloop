@@ -3,6 +3,7 @@
 #include <iostream>
 #include <atomic>
 #include <future>
+#include <sstream>
 
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode),
@@ -16,6 +17,7 @@ int Agent::run(const std::string& initial_prompt) {
     if (!initial_prompt.empty()) {
         pending_execution_ = initial_prompt;
         non_interactive_ = true;
+        rebuild_registry();
     }
     loop();
     return exit_code_;
@@ -286,11 +288,11 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
 
     // Pre-pass: intercept special agent-level tools
     for (const auto& call : calls) {
-        if (call.name == "present_plan" || call.name == "print") {
+        if (call.name == "present_plan" || call.name == "print" || call.name == "ask_user") {
             ui_.show_tool_call(call, ToolSource::Local);
-            ToolResult r = (call.name == "present_plan")
-                ? handle_present_plan(call.args)
-                : handle_print(call.args);
+            ToolResult r = (call.name == "present_plan") ? handle_present_plan(call.args)
+                         : (call.name == "ask_user")     ? handle_ask_user(call.args)
+                         :                                  handle_print(call.args);
             ui_.show_tool_result(call, r);
             if (!combined.empty()) combined += "\n\n";
             combined += "[Tool: " + call.name + "]\n" + r.to_context_string();
@@ -420,6 +422,28 @@ ToolResult Agent::handle_print(const ToolArgs& args) {
     return ToolResult::ok("Printed.");
 }
 
+ToolResult Agent::handle_ask_user(const ToolArgs& args) {
+    auto q_it = args.find("question");
+    if (q_it == args.end() || !q_it->second.is_string())
+        return ToolResult::fail("ask_user: 'question' argument required");
+    const std::string& question = q_it->second.as_string();
+
+    std::vector<std::string> options;
+    auto o_it = args.find("options");
+    if (o_it != args.end() && o_it->second.is_string()) {
+        std::istringstream ss(o_it->second.as_string());
+        std::string token;
+        while (std::getline(ss, token, ';')) {
+            while (!token.empty() && (token.front() == ' ' || token.front() == '\t')) token.erase(token.begin());
+            while (!token.empty() && (token.back() == ' ' || token.back() == '\t' || token.back() == '\r')) token.pop_back();
+            if (!token.empty()) options.push_back(token);
+        }
+    }
+
+    std::string response = ui_.ask_user(question, options);
+    return ToolResult::ok("User response: " + response);
+}
+
 bool Agent::handle_slash_command(std::string_view input) {
     if (input.empty() || input[0] != '/') {
         return false;
@@ -487,5 +511,5 @@ void Agent::transition_to(AgentMode next) {
 }
 
 void Agent::rebuild_registry() {
-    registry_ = make_registry(mode_, config_);
+    registry_ = make_registry(mode_, config_, non_interactive_);
 }

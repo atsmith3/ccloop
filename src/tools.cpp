@@ -143,14 +143,18 @@ ToolResult tool_list_dir(const ToolArgs& args) {
         if (!fs::exists(*path)) return ToolResult::fail("Directory not found: " + *path);
 
         std::ostringstream ss;
-        bool first = true;
+        int count = 0;
         for (const auto& entry : fs::directory_iterator(*path)) {
-            if (!first) ss << "\n";
-            ss << entry.path().filename().string();
-            first = false;
+            if (count > 0) ss << "\n";
+            const char* type = entry.is_symlink()   ? "[link] "
+                             : entry.is_directory() ? "[dir]  "
+                             :                        "[file] ";
+            ss << type << entry.path().filename().string();
+            ++count;
         }
-        if (first) return ToolResult::ok("(directory is empty): " + *path);
-        return ToolResult::ok(ss.str());
+        if (count == 0) return ToolResult::ok("(directory is empty): " + *path);
+        std::string header = std::to_string(count) + (count == 1 ? " entry:\n" : " entries:\n");
+        return ToolResult::ok(header + ss.str());
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -712,7 +716,7 @@ ToolResult tool_spawn_agent(const ToolArgs& args, const std::string& config_path
 // Registry factory
 // ============================================================================
 
-ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
+ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive) {
     ToolRegistry registry;
 
     // Read-only tools: always registered
@@ -805,6 +809,23 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
             "important findings, key decisions, or final answers. Do not use for "
             "routine step announcements.";
         tool.def.params.push_back({"message", "string", "The message to display", true});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // ask_user: omitted in non-interactive and yolo (auto_approve_shell) modes
+    if (!non_interactive && !cfg.permissions.auto_approve_shell) {
+        Tool tool;
+        tool.def.name        = "ask_user";
+        tool.def.description =
+            "Ask the user a clarifying question and wait for their response. "
+            "Optionally provide semicolon-separated choices (e.g. \"Yes;No;Maybe\"); "
+            "a 'Custom response' option is always appended as the last choice.";
+        tool.def.params.push_back({"question", "string", "The question to present to the user", true});
+        tool.def.params.push_back({"options",  "string",
+            "Optional semicolon-separated list of choices, e.g. \"Option A;Option B\"", false});
         tool.def.permission = "read";
         tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
         tool.source = ToolSource::Local;

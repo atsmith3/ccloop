@@ -187,3 +187,37 @@ std::string Ui::wait_for_input() {
 
     return line;
 }
+
+std::string Ui::ask_user(const std::string& question, const std::vector<std::string>& options) {
+    std::cout << "\n[Question] " << question << "\n";
+
+    if (!options.empty()) {
+        for (size_t i = 0; i < options.size(); ++i)
+            std::cout << "  " << (i + 1) << ". " << options[i] << "\n";
+        size_t custom_idx = options.size() + 1;
+        std::cout << "  " << custom_idx << ". Custom response\n";
+
+        while (true) {
+            std::cout << "Choice [1-" << custom_idx << "]: ";
+            std::cout.flush();
+            std::string line;
+            if (!std::getline(std::cin, line)) { std::cin.clear(); break; }
+            while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
+                line.pop_back();
+            try {
+                size_t idx = std::stoul(line);
+                if (idx >= 1 && idx < custom_idx) return options[idx - 1];
+                if (idx == custom_idx) break;
+            } catch (...) {}
+            std::cout << "Enter a number between 1 and " << custom_idx << ".\n";
+        }
+    }
+
+    std::cout << "> ";
+    std::cout.flush();
+    std::string line;
+    if (!std::getline(std::cin, line)) { std::cin.clear(); return ""; }
+    while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
+        line.pop_back();
+    return line;
+}
