@@ -23,4 +23,5 @@ public:
     void         show_completion      (const std::string& summary);
     std::string  wait_for_input();
     std::string  ask_user(const std::string& question, const std::vector<std::string>& options);
+    std::string  open_editor(const std::string& configured_editor = "");
 };
