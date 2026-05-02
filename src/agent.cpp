@@ -492,6 +492,7 @@ bool Agent::handle_slash_command(std::string_view input) {
         std::cout << "Slash commands:\n"
                   << "  /mode plan|act - switch modes\n"
                   << "  /compact - summarize and compact the context window\n"
+                  << "  /edit - open $EDITOR to compose a multi-line prompt\n"
                   << "  /quit - exit\n"
                   << "  /clear - clear context\n"
                   << "  /help - show this help\n";
@@ -503,6 +504,17 @@ bool Agent::handle_slash_command(std::string_view input) {
         new_ctx.push_system(system_prompt());
         context_ = std::move(new_ctx);
         ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+        return true;
+    }
+
+    if (command == "edit") {
+        std::string text = ui_.open_editor(config_.editor);
+        if (text.empty()) {
+            std::cout << "[edit cancelled]\n";
+            std::cout.flush();
+        } else {
+            pending_execution_ = std::move(text);
+        }
         return true;
     }
 

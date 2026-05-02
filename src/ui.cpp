@@ -2,7 +2,11 @@
 #include "signals.h"
 #include "json.h"
 #include <iostream>
+#include <fstream>
 #include <cctype>
+#include <cstdlib>
+#include <cstdio>
+#include <unistd.h>
 
 Ui::Ui() {}
 
@@ -220,4 +224,31 @@ std::string Ui::ask_user(const std::string& question, const std::vector<std::str
     while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
         line.pop_back();
     return line;
+}
+
+std::string Ui::open_editor(const std::string& configured_editor) {
+    char tmp_path[] = "/tmp/ccl_XXXXXX";
+    int fd = mkstemp(tmp_path);
+    if (fd == -1) return "";
+    close(fd);
+
+    const char* editor = configured_editor.empty() ? nullptr : configured_editor.c_str();
+    if (!editor || !*editor) editor = std::getenv("VISUAL");
+    if (!editor || !*editor) editor = std::getenv("EDITOR");
+    if (!editor || !*editor) editor = "nano";
+
+    std::string cmd = std::string(editor) + " " + tmp_path;
+    int r = system(cmd.c_str());
+    (void)r;
+
+    std::ifstream f(tmp_path);
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    std::remove(tmp_path);
+
+    while (!content.empty() && (content.back() == '\n' || content.back() == '\r' ||
+                                 content.back() == ' '  || content.back() == '\t')) {
+        content.pop_back();
+    }
+    return content;
 }

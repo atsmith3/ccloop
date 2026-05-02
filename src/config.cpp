@@ -113,6 +113,8 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.aws_secret_key = parse_string_value(value);
         } else if (key == "mcp_config") {
             cfg.mcp_config = parse_string_value(value);
+        } else if (key == "editor") {
+            cfg.editor = parse_string_value(value);
         }
     }
 }

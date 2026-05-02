@@ -49,6 +49,9 @@ struct Config {
     // Path of the loaded config file (absolute, set at load time)
     std::string config_path = "";
 
+    // Preferred editor for /edit command (empty = use $VISUAL/$EDITOR/nano)
+    std::string editor = "";
+
     // MCP config file path (JSON, optional)
     std::string mcp_config = "";
 

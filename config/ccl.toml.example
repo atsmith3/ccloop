@@ -16,8 +16,12 @@ connector   = "openai-json"
 # MCP servers config (optional — path to JSON file)
 # mcp_config = "~/.config/ccl/mcp.json"
 
+# Editor for long prompts
+editor = "vim"
+
 [permissions]                                                                                                                                                                                                                                                            
 read   = true    # auto-approve: read_file, list_dir, search_files, file_info                                                                                                                                                                                            
 write  = true    # auto-approve: write_file, edit_file, create_dir                                                                                                                                                                                                       
 delete = false   # auto-approve: delete_file                                                                                                                                                                                                                             
 shell  = false   # auto-approve: run_shell
+
