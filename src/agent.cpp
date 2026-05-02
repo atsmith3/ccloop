@@ -62,6 +62,9 @@ std::string Agent::system_prompt() const {
                 "   The user will accept, refine, or reject. On refinement, revise and call present_plan again.\n"
                 "4. Call out risks, dependencies, or prerequisites in the plan text\n\n"
                 "For simple questions that do not require a plan, answer directly in text — no tool call needed.\n\n"
+                "Use ask_user to clarify requirements before planning. Ask ONE focused question per call — "
+                "never bundle multiple questions into a single call. When you need several answers, ask them "
+                "sequentially: wait for the response, then ask the next question.\n\n"
                 "Use print(message=...) to surface key findings mid-exploration. Keep output minimal.\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
                 "that you have not confirmed exist. Do not write or modify any files.";
@@ -116,7 +119,9 @@ std::string Agent::system_prompt() const {
                 "## Roadblock (use only when you cannot proceed without user input)\n\n"
                 "  ## Roadblock: <one-line description of what is blocking you>\n\n"
                 "Output this marker to pause execution and ask the user for guidance. "
-                "Do not output it for recoverable errors — attempt fixes first.";
+                "Do not output it for recoverable errors — attempt fixes first.\n\n"
+                "When using ask_user mid-execution, ask ONE focused question per call. "
+                "Never bundle multiple questions into a single call.";
     }
     return "";
 }
