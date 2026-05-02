@@ -184,8 +184,8 @@ TEST(tool_registry_definitions_count) {
     ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
     auto defs = registry.definitions();
-    // 4 read-only tools + run_shell + spawn_agent
-    CHECK_EQ(defs.size(), size_t(6));
+    // 4 read-only tools + find_symbol + present_plan + print + ask_user + run_shell + spawn_agent
+    CHECK_EQ(defs.size(), size_t(10));
 }
 
 TEST(tool_result_ok_fields) {
@@ -265,8 +265,7 @@ TEST(tool_write_file_diff_in_result) {
 
     ToolResult result = tool_write_file(args);
     CHECK(result.success);
-    // Diff should be in content
-    CHECK(result.content.find("+++") != std::string::npos || result.content.find("line1") != std::string::npos);
+    CHECK(result.content == "Written: " + file_path + " (2 lines)");
 }
 
 TEST(tool_write_file_atomic_no_tmp_remaining) {
@@ -421,8 +420,8 @@ TEST(tool_registry_act_mode_has_write_tools) {
     ToolRegistry registry = make_registry(AgentMode::Act, cfg);
 
     auto defs = registry.definitions();
-    // Should have 10 tools: 4 read-only + run_shell + spawn_agent + 4 write (write_file, edit_file, create_dir, delete_file)
-    CHECK_EQ(defs.size(), size_t(10));
+    // Should have 14 tools: 4 read-only + find_symbol + print + ask_user + run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir, delete_file, delete_dir)
+    CHECK_EQ(defs.size(), size_t(14));
 
     // Verify write tools are present
     auto write_file = registry.find("write_file");
@@ -508,8 +507,7 @@ TEST(tool_edit_file_diff_in_result) {
 
     ToolResult result = tool_edit_file(args);
     CHECK(result.success);
-    CHECK(result.content.find("lineX") != std::string::npos ||
-          result.content.find("+++")   != std::string::npos);
+    CHECK(result.content == "Edited: " + file_path + " (+0 lines)");
 }
 
 // ============================================================================
@@ -822,4 +820,322 @@ TEST(tool_run_shell_inherits_env) {
 
     CHECK(result.success);
     CHECK(result.content.find("hello_sentinel_456") != std::string::npos);
+}
+
+// ============================================================================
+// read_file offset/limit tests
+// ============================================================================
+
+static std::string make_5line_file(const std::string& dir) {
+    std::string path = dir + "/lines.txt";
+    std::ofstream f(path);
+    f << "line1\nline2\nline3\nline4\nline5\n";
+    return path;
+}
+
+TEST(tool_read_file_offset_reads_from_line) {
+    TmpDir tmp;
+    std::string path = make_5line_file(tmp.path);
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
+    args["offset"] = JsonValue(); args["offset"].data.emplace<double>(3);
+
+    ToolResult result = tool_read_file(args);
+    CHECK(result.success);
+    CHECK(result.content.find("line1") == std::string::npos);
+    CHECK(result.content.find("line3") != std::string::npos);
+    CHECK(result.content.find("line5") != std::string::npos);
+}
+
+TEST(tool_read_file_limit_reads_n_lines) {
+    TmpDir tmp;
+    std::string path = make_5line_file(tmp.path);
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
+    args["limit"] = JsonValue(); args["limit"].data.emplace<double>(2);
+
+    ToolResult result = tool_read_file(args);
+    CHECK(result.success);
+    CHECK(result.content.find("line1") != std::string::npos);
+    CHECK(result.content.find("line2") != std::string::npos);
+    CHECK(result.content.find("line3") == std::string::npos);
+}
+
+TEST(tool_read_file_offset_and_limit) {
+    TmpDir tmp;
+    std::string path = make_5line_file(tmp.path);
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
+    args["offset"] = JsonValue(); args["offset"].data.emplace<double>(2);
+    args["limit"] = JsonValue(); args["limit"].data.emplace<double>(2);
+
+    ToolResult result = tool_read_file(args);
+    CHECK(result.success);
+    CHECK(result.content.find("line1") == std::string::npos);
+    CHECK(result.content.find("line2") != std::string::npos);
+    CHECK(result.content.find("line3") != std::string::npos);
+    CHECK(result.content.find("line4") == std::string::npos);
+}
+
+TEST(tool_read_file_offset_beyond_eof_returns_empty) {
+    TmpDir tmp;
+    std::string path = tmp.path + "/short.txt";
+    { std::ofstream f(path); f << "a\nb\nc\n"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
+    args["offset"] = JsonValue(); args["offset"].data.emplace<double>(10);
+
+    ToolResult result = tool_read_file(args);
+    CHECK(result.success);
+    CHECK(result.content.empty());
+}
+
+TEST(tool_read_file_limit_larger_than_file_returns_all) {
+    TmpDir tmp;
+    std::string path = tmp.path + "/short.txt";
+    { std::ofstream f(path); f << "a\nb\nc\n"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
+    args["limit"] = JsonValue(); args["limit"].data.emplace<double>(100);
+
+    ToolResult result = tool_read_file(args);
+    CHECK(result.success);
+    CHECK(result.content.find("a") != std::string::npos);
+    CHECK(result.content.find("c") != std::string::npos);
+}
+
+TEST(tool_read_file_offset_1_same_as_no_offset) {
+    TmpDir tmp;
+    std::string path = make_5line_file(tmp.path);
+
+    ToolArgs no_offset_args;
+    no_offset_args["path"] = JsonValue();
+    no_offset_args["path"].data.emplace<std::string>(path);
+    ToolResult no_offset = tool_read_file(no_offset_args);
+
+    ToolArgs offset1_args;
+    offset1_args["path"] = JsonValue(); offset1_args["path"].data.emplace<std::string>(path);
+    offset1_args["offset"] = JsonValue(); offset1_args["offset"].data.emplace<double>(1);
+    ToolResult with_offset = tool_read_file(offset1_args);
+
+    CHECK(no_offset.success);
+    CHECK(with_offset.success);
+    CHECK_EQ(no_offset.content, with_offset.content);
+}
+
+// ============================================================================
+// delete_dir tests
+// ============================================================================
+
+TEST(tool_delete_dir_empty_dir) {
+    TmpDir tmp;
+    std::string dir = tmp.path + "/toremove";
+    fs::create_directories(dir);
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
+
+    ToolResult result = tool_delete_dir(args);
+    CHECK(result.success);
+    CHECK(!fs::exists(dir));
+}
+
+TEST(tool_delete_dir_nonempty_requires_recursive) {
+    TmpDir tmp;
+    std::string dir = tmp.path + "/toremove";
+    fs::create_directories(dir);
+    { std::ofstream f(dir + "/file.txt"); f << "content"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
+
+    ToolResult result = tool_delete_dir(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("not empty") != std::string::npos);
+    CHECK(fs::exists(dir));
+}
+
+TEST(tool_delete_dir_recursive_deletes_all_contents) {
+    TmpDir tmp;
+    std::string dir = tmp.path + "/toremove";
+    fs::create_directories(dir + "/sub");
+    { std::ofstream f(dir + "/file.txt"); f << "data"; }
+    { std::ofstream f(dir + "/sub/nested.txt"); f << "data"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
+    args["recursive"] = JsonValue(); args["recursive"].data.emplace<bool>(true);
+
+    ToolResult result = tool_delete_dir(args);
+    CHECK(result.success);
+    CHECK(!fs::exists(dir));
+}
+
+TEST(tool_delete_dir_missing_path_fails) {
+    ToolArgs args;
+    args["path"] = JsonValue();
+    args["path"].data.emplace<std::string>("/nonexistent/path/xyz");
+
+    ToolResult result = tool_delete_dir(args);
+    CHECK(!result.success);
+}
+
+TEST(tool_delete_dir_on_file_fails) {
+    TmpDir tmp;
+    std::string file = tmp.path + "/afile.txt";
+    { std::ofstream f(file); f << "hello"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(file);
+
+    ToolResult result = tool_delete_dir(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("not a directory") != std::string::npos);
+}
+
+TEST(tool_delete_dir_explicit_recursive_false_nonempty_fails) {
+    TmpDir tmp;
+    std::string dir = tmp.path + "/toremove";
+    fs::create_directories(dir);
+    { std::ofstream f(dir + "/file.txt"); f << "content"; }
+
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
+    args["recursive"] = JsonValue(); args["recursive"].data.emplace<bool>(false);
+
+    ToolResult result = tool_delete_dir(args);
+    CHECK(!result.success);
+}
+
+// ============================================================================
+// find_symbol tests
+// ============================================================================
+
+TEST(tool_find_symbol_basic_match) {
+    TmpDir tmp;
+    std::string file = tmp.path + "/code.cpp";
+    { std::ofstream f(file); f << "void myFunction() {}\n"; }
+
+    ToolArgs args;
+    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunction");
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("myFunction") != std::string::npos);
+    CHECK(result.content.find("code.cpp") != std::string::npos);
+}
+
+TEST(tool_find_symbol_no_match_returns_message) {
+    TmpDir tmp;
+    std::string file = tmp.path + "/code.cpp";
+    { std::ofstream f(file); f << "void otherFunc() {}\n"; }
+
+    ToolArgs args;
+    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("nonexistent_xyz");
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("no matches") != std::string::npos);
+}
+
+TEST(tool_find_symbol_word_boundary_no_partial) {
+    TmpDir tmp;
+    std::string file = tmp.path + "/code.cpp";
+    { std::ofstream f(file); f << "void myFunctionHelper() {}\n"; }
+
+    ToolArgs args;
+    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunction");
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("no matches") != std::string::npos);
+}
+
+TEST(tool_find_symbol_language_filter_matches_cpp) {
+    TmpDir tmp;
+    std::string cpp_file = tmp.path + "/code.cpp";
+    std::string py_file  = tmp.path + "/code.py";
+    { std::ofstream f(cpp_file); f << "void myFunc() {}\n"; }
+    { std::ofstream f(py_file);  f << "def myFunc(): pass\n"; }
+
+    ToolArgs args;
+    args["symbol"]   = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
+    args["language"] = JsonValue(); args["language"].data.emplace<std::string>("cpp");
+    args["path"]     = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("code.cpp") != std::string::npos);
+    CHECK(result.content.find("code.py") == std::string::npos);
+}
+
+TEST(tool_find_symbol_language_filter_excludes_cpp) {
+    TmpDir tmp;
+    std::string cpp_file = tmp.path + "/code.cpp";
+    std::string py_file  = tmp.path + "/code.py";
+    { std::ofstream f(cpp_file); f << "void myFunc() {}\n"; }
+    { std::ofstream f(py_file);  f << "def myFunc(): pass\n"; }
+
+    ToolArgs args;
+    args["symbol"]   = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
+    args["language"] = JsonValue(); args["language"].data.emplace<std::string>("python");
+    args["path"]     = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("code.py") != std::string::npos);
+    CHECK(result.content.find("code.cpp") == std::string::npos);
+}
+
+TEST(tool_find_symbol_multiple_files) {
+    TmpDir tmp;
+    std::string file_a = tmp.path + "/a.cpp";
+    std::string file_b = tmp.path + "/b.cpp";
+    { std::ofstream f(file_a); f << "void myFunc() {}\n"; }
+    { std::ofstream f(file_b); f << "void myFunc() {}\n"; }
+
+    ToolArgs args;
+    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
+    args["path"]   = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("a.cpp") != std::string::npos);
+    CHECK(result.content.find("b.cpp") != std::string::npos);
+}
+
+TEST(tool_find_symbol_missing_symbol_arg_fails) {
+    ToolArgs args;
+    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(".");
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("symbol") != std::string::npos);
+}
+
+TEST(tool_find_symbol_path_restricts_search) {
+    TmpDir tmp;
+    std::string dir_a = tmp.path + "/a";
+    std::string dir_b = tmp.path + "/b";
+    fs::create_directories(dir_a);
+    fs::create_directories(dir_b);
+    { std::ofstream f(dir_a + "/code.cpp"); f << "void myFunc() {}\n"; }
+    { std::ofstream f(dir_b + "/code.cpp"); f << "void myFunc() {}\n"; }
+
+    ToolArgs args;
+    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
+    args["path"]   = JsonValue(); args["path"].data.emplace<std::string>(dir_a);
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find(dir_a) != std::string::npos);
+    CHECK(result.content.find(dir_b) == std::string::npos);
 }

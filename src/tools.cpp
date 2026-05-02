@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <filesystem>
+#include <limits>
 #include <fnmatch.h>
 #include <regex>
 #include <set>
@@ -108,8 +109,28 @@ ToolResult tool_read_file(const ToolArgs& args) {
     std::ifstream file(*path);
     if (!file) return ToolResult::fail("File not found: " + *path);
 
+    auto offset_opt = arg_int(args, "offset");
+    auto limit_opt  = arg_int(args, "limit");
+
+    if (!offset_opt && !limit_opt) {
+        std::ostringstream ss;
+        ss << file.rdbuf();
+        return ToolResult::ok(ss.str());
+    }
+
+    int start_line = offset_opt.value_or(1);
+    int max_lines  = limit_opt.value_or(std::numeric_limits<int>::max());
+    if (start_line < 1) start_line = 1;
+
     std::ostringstream ss;
-    ss << file.rdbuf();
+    std::string line;
+    int line_no = 0, lines_written = 0;
+    while (lines_written < max_lines && std::getline(file, line)) {
+        ++line_no;
+        if (line_no < start_line) continue;
+        ss << line << "\n";
+        ++lines_written;
+    }
     return ToolResult::ok(ss.str());
 }
 
@@ -122,13 +143,18 @@ ToolResult tool_list_dir(const ToolArgs& args) {
         if (!fs::exists(*path)) return ToolResult::fail("Directory not found: " + *path);
 
         std::ostringstream ss;
-        bool first = true;
+        int count = 0;
         for (const auto& entry : fs::directory_iterator(*path)) {
-            if (!first) ss << "\n";
-            ss << entry.path().filename().string();
-            first = false;
+            if (count > 0) ss << "\n";
+            const char* type = entry.is_symlink()   ? "[link] "
+                             : entry.is_directory() ? "[dir]  "
+                             :                        "[file] ";
+            ss << type << entry.path().filename().string();
+            ++count;
         }
-        return ToolResult::ok(ss.str());
+        if (count == 0) return ToolResult::ok("(directory is empty): " + *path);
+        std::string header = std::to_string(count) + (count == 1 ? " entry:\n" : " entries:\n");
+        return ToolResult::ok(header + ss.str());
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -285,44 +311,6 @@ static std::string atomic_write(const std::string& path, const std::string& cont
     return "";
 }
 
-// Helper: Generate a unified diff (simple line-based)
-static std::string generate_diff(const std::string& old_content, const std::string& new_content, const std::string& path) {
-    auto split_lines = [](const std::string& s) {
-        std::vector<std::string> lines;
-        std::istringstream iss(s);
-        std::string line;
-        while (std::getline(iss, line)) lines.push_back(line);
-        return lines;
-    };
-
-    std::vector<std::string> old_lines = split_lines(old_content);
-    std::vector<std::string> new_lines = split_lines(new_content);
-
-    if (old_lines.size() > 500 || new_lines.size() > 500) {
-        return "content changed: " + std::to_string(old_content.size()) + " bytes -> " +
-               std::to_string(new_content.size()) + " bytes";
-    }
-
-    std::ostringstream diff;
-    diff << "--- " << path << " (old)\n";
-    diff << "+++ " << path << " (new)\n";
-    diff << "@@ -1," << old_lines.size() << " +1," << new_lines.size() << " @@\n";
-
-    size_t old_idx = 0, new_idx = 0;
-    while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
-        if (old_idx < old_lines.size() && new_idx < new_lines.size() &&
-            old_lines[old_idx] == new_lines[new_idx]) {
-            diff << " " << old_lines[old_idx] << "\n";
-            ++old_idx; ++new_idx;
-        } else if (old_idx < old_lines.size() &&
-                   (new_idx >= new_lines.size() || old_lines[old_idx] != new_lines[new_idx])) {
-            diff << "-" << old_lines[old_idx++] << "\n";
-        } else {
-            diff << "+" << new_lines[new_idx++] << "\n";
-        }
-    }
-    return diff.str();
-}
 
 ToolResult tool_write_file(const ToolArgs& args) {
     std::string err;
@@ -336,10 +324,14 @@ ToolResult tool_write_file(const ToolArgs& args) {
             if (file) { std::ostringstream ss; ss << file.rdbuf(); old_content = ss.str(); }
         }
 
-        std::string diff = generate_diff(old_content, *new_content, *path);
+        if (old_content == *new_content)
+            return ToolResult::ok("(no changes) " + *path + " already has identical content.");
+
         std::string write_err = atomic_write(*path, *new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok(diff);
+        int line_count = (int)std::count(new_content->begin(), new_content->end(), '\n');
+        if (!new_content->empty() && new_content->back() != '\n') ++line_count;
+        return ToolResult::ok("Written: " + *path + " (" + std::to_string(line_count) + " lines)");
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -365,10 +357,17 @@ ToolResult tool_edit_file(const ToolArgs& args) {
             return ToolResult::fail("old_str is ambiguous (appears more than once)");
 
         std::string new_content = content.substr(0, pos) + *new_str + content.substr(pos + old_str->size());
-        std::string diff = generate_diff(content, new_content, *path);
         std::string write_err = atomic_write(*path, new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        return ToolResult::ok(diff);
+        auto count_lines = [](const std::string& s) -> int {
+            if (s.empty()) return 0;
+            int n = (int)std::count(s.begin(), s.end(), '\n');
+            if (s.back() != '\n') ++n;
+            return n;
+        };
+        int delta = count_lines(*new_str) - count_lines(*old_str);
+        std::string sign = (delta >= 0) ? "+" : "";
+        return ToolResult::ok("Edited: " + *path + " (" + sign + std::to_string(delta) + " lines)");
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -404,6 +403,119 @@ ToolResult tool_delete_file(const ToolArgs& args) {
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
+}
+
+ToolResult tool_delete_dir(const ToolArgs& args) {
+    std::string err;
+    auto path = arg_path(args, "path", err);
+    if (!path) return ToolResult::fail(err);
+
+    bool recursive = false;
+    auto rec_it = args.find("recursive");
+    if (rec_it != args.end()) {
+        if (rec_it->second.is_bool()) recursive = rec_it->second.as_bool();
+        else if (rec_it->second.is_string()) recursive = (rec_it->second.as_string() == "true");
+    }
+
+    try {
+        if (!fs::exists(*path)) return ToolResult::fail("not found: " + *path);
+        if (!fs::is_directory(*path)) return ToolResult::fail("not a directory: " + *path);
+        if (!recursive && !fs::is_empty(*path))
+            return ToolResult::fail("directory is not empty — set recursive=true to delete recursively");
+        uintmax_t removed = fs::remove_all(*path);
+        return ToolResult::ok("deleted: " + *path + " (" + std::to_string(removed) + " entries removed)");
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+}
+
+ToolResult tool_find_symbol(const ToolArgs& args) {
+    std::string err;
+    auto symbol_opt = arg_str(args, "symbol", err);
+    if (!symbol_opt) return ToolResult::fail(err);
+    const std::string& symbol = *symbol_opt;
+
+    // Map language name to glob(s)
+    std::string file_glob = "*";
+    auto lang_it = args.find("language");
+    if (lang_it != args.end() && lang_it->second.is_string()) {
+        std::string lang = lang_it->second.as_string();
+        if (lang == "cpp" || lang == "c++")          file_glob = "*.cpp;*.h;*.cc;*.cxx";
+        else if (lang == "c")                        file_glob = "*.c;*.h";
+        else if (lang == "python" || lang == "py")   file_glob = "*.py";
+        else if (lang == "rust")                     file_glob = "*.rs";
+        else if (lang == "go")                       file_glob = "*.go";
+        else if (lang == "javascript" || lang == "js") file_glob = "*.js;*.mjs;*.cjs";
+        else if (lang == "typescript" || lang == "ts") file_glob = "*.ts;*.tsx";
+    }
+
+    std::string search_path = ".";
+    auto path_it = args.find("path");
+    if (path_it != args.end() && path_it->second.is_string())
+        search_path = expand_tilde(path_it->second.as_string());
+
+    std::regex re;
+    try {
+        re = std::regex("\\b" + symbol + "\\b");
+    } catch (const std::regex_error& e) {
+        return ToolResult::fail("invalid symbol: " + std::string(e.what()));
+    }
+
+    std::vector<std::string> globs;
+    {
+        std::istringstream iss(file_glob);
+        std::string g;
+        while (std::getline(iss, g, ';'))
+            if (!g.empty()) globs.push_back(g);
+    }
+
+    static const std::set<std::string> skip_dirs = {
+        "venv", "env", ".venv", "node_modules", "__pycache__",
+        "dist", "build", ".tox", ".eggs", "site-packages"
+    };
+
+    std::ostringstream ss;
+    bool found_any = false, truncated = false;
+    try {
+        for (auto it = fs::recursive_directory_iterator(search_path);
+             it != fs::recursive_directory_iterator(); ++it) {
+            if (it->is_directory()) {
+                const std::string& dname = it->path().filename().string();
+                if (!dname.empty() && (dname[0] == '.' || skip_dirs.count(dname))) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+            }
+            if (!it->is_regular_file()) continue;
+            std::string fname = it->path().filename().string();
+            bool matches = false;
+            for (const auto& g : globs) {
+                if (fnmatch(g.c_str(), fname.c_str(), 0) == 0) { matches = true; break; }
+            }
+            if (!matches) continue;
+
+            std::ifstream file(it->path());
+            if (!file) continue;
+            std::string line;
+            int line_no = 0;
+            while (std::getline(file, line)) {
+                ++line_no;
+                if (line.size() > 2048) continue;
+                if (std::regex_search(line, re)) {
+                    if (found_any) ss << "\n";
+                    ss << it->path().string() << ":" << line_no << ": " << line;
+                    found_any = true;
+                }
+            }
+            if (ss.tellp() > 8000) { truncated = true; break; }
+        }
+    } catch (const std::exception& e) {
+        return ToolResult::fail(std::string(e.what()));
+    }
+
+    if (!found_any) return ToolResult::ok("(no matches for '" + symbol + "')");
+    if (truncated) ss << "\n[... truncated — narrow with path= or language=]";
+    return ToolResult::ok(ss.str());
 }
 
 ToolResult tool_run_shell(const ToolArgs& args) {
@@ -538,7 +650,8 @@ ToolResult tool_run_shell(const ToolArgs& args) {
         return ToolResult::fail("exit " + std::to_string(exit_code) + ": " + output.str());
     }
 
-    return ToolResult::ok(output.str());
+    std::string result = output.str();
+    return ToolResult::ok(result.empty() ? "exit 0" : result);
 }
 
 // ============================================================================
@@ -603,15 +716,17 @@ ToolResult tool_spawn_agent(const ToolArgs& args, const std::string& config_path
 // Registry factory
 // ============================================================================
 
-ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
+ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive) {
     ToolRegistry registry;
 
     // Read-only tools: always registered
     {
         Tool tool;
         tool.def.name = "read_file";
-        tool.def.description = "Read the contents of a file";
-        tool.def.params.push_back({"path", "string", "Path to file", true});
+        tool.def.description = "Read the contents of a file. Use offset/limit to read a specific line range.";
+        tool.def.params.push_back({"path",   "string",  "Path to file",                                    true});
+        tool.def.params.push_back({"offset", "integer", "1-based first line to read (optional)",           false});
+        tool.def.params.push_back({"limit",  "integer", "Maximum number of lines to return (optional)",    false});
         tool.def.permission = "read";
         tool.fn = tool_read_file;
         tool.source = ToolSource::Local;
@@ -649,6 +764,70 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
         tool.def.params.push_back({"path", "string", "Path to file or directory", true});
         tool.def.permission = "read";
         tool.fn = tool_file_info;
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    {
+        Tool tool;
+        tool.def.name = "find_symbol";
+        tool.def.description =
+            "Search for a symbol (function, class, variable) by name across source files. "
+            "Returns file:line matches with word-boundary matching. Use language= to restrict "
+            "to a specific file type (cpp, python, rust, go, javascript, typescript).";
+        tool.def.params.push_back({"symbol",   "string", "Symbol name to search for",                          true});
+        tool.def.params.push_back({"language", "string", "Language filter: cpp, python, rust, go, js, ts",     false});
+        tool.def.params.push_back({"path",     "string", "Root path to search (default: current directory)",   false});
+        tool.def.permission = "read";
+        tool.fn = tool_find_symbol;
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // present_plan: Plan mode only
+    if (mode == AgentMode::Plan) {
+        Tool tool;
+        tool.def.name = "present_plan";
+        tool.def.description =
+            "Present the completed plan to the user for approval. "
+            "The user will accept (proceed to execution), request refinements, "
+            "or reject the plan. Call this when the plan is fully formed.";
+        tool.def.params.push_back({"plan", "string",
+            "The complete numbered plan text to present to the user", true});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // print: both modes — explicit output to user / parent agent
+    {
+        Tool tool;
+        tool.def.name = "print";
+        tool.def.description =
+            "Print a message to the user or parent agent. Use sparingly — only for "
+            "important findings, key decisions, or final answers. Do not use for "
+            "routine step announcements.";
+        tool.def.params.push_back({"message", "string", "The message to display", true});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
+        tool.source = ToolSource::Local;
+        registry.register_tool(std::move(tool));
+    }
+
+    // ask_user: omitted in non-interactive and yolo (auto_approve_shell) modes
+    if (!non_interactive && !cfg.permissions.auto_approve_shell) {
+        Tool tool;
+        tool.def.name        = "ask_user";
+        tool.def.description =
+            "Ask the user a clarifying question and wait for their response. "
+            "Optionally provide semicolon-separated choices (e.g. \"Yes;No;Maybe\"); "
+            "a 'Custom response' option is always appended as the last choice.";
+        tool.def.params.push_back({"question", "string", "The question to present to the user", true});
+        tool.def.params.push_back({"options",  "string",
+            "Optional semicolon-separated list of choices, e.g. \"Option A;Option B\"", false});
+        tool.def.permission = "read";
+        tool.fn = [](const ToolArgs&) { return ToolResult::ok(""); };
         tool.source = ToolSource::Local;
         registry.register_tool(std::move(tool));
     }
@@ -698,6 +877,18 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg) {
             tool.def.params.push_back({"path", "string", "Path to file", true});
             tool.def.permission = "delete";
             tool.fn = tool_delete_file;
+            tool.source = ToolSource::Local;
+            registry.register_tool(std::move(tool));
+        }
+
+        {
+            Tool tool;
+            tool.def.name = "delete_dir";
+            tool.def.description = "Delete a directory. Set recursive=true to delete non-empty directories.";
+            tool.def.params.push_back({"path",      "string",  "Path to directory",                              true});
+            tool.def.params.push_back({"recursive", "boolean", "Delete non-empty directories recursively",       false});
+            tool.def.permission = "delete";
+            tool.fn = tool_delete_dir;
             tool.source = ToolSource::Local;
             registry.register_tool(std::move(tool));
         }

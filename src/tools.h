@@ -32,18 +32,20 @@ private:
 };
 
 // Factory — builds registry based on mode
-ToolRegistry make_registry(AgentMode mode, const Config& cfg);
+ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive = false);
 
 // Read-only tools (registered in all modes)
-ToolResult tool_read_file   (const ToolArgs& args);
-ToolResult tool_list_dir    (const ToolArgs& args);
-ToolResult tool_search_files(const ToolArgs& args);
-ToolResult tool_file_info   (const ToolArgs& args);
+ToolResult tool_read_file    (const ToolArgs& args);
+ToolResult tool_list_dir     (const ToolArgs& args);
+ToolResult tool_search_files (const ToolArgs& args);
+ToolResult tool_file_info    (const ToolArgs& args);
+ToolResult tool_find_symbol  (const ToolArgs& args);
 
 // Write tools (Act mode only)
-ToolResult tool_write_file  (const ToolArgs& args);
-ToolResult tool_edit_file   (const ToolArgs& args);
-ToolResult tool_create_dir  (const ToolArgs& args);
-ToolResult tool_delete_file (const ToolArgs& args);
-ToolResult tool_run_shell   (const ToolArgs& args);
-ToolResult tool_spawn_agent (const ToolArgs& args, const std::string& config_path = "");
+ToolResult tool_write_file   (const ToolArgs& args);
+ToolResult tool_edit_file    (const ToolArgs& args);
+ToolResult tool_create_dir   (const ToolArgs& args);
+ToolResult tool_delete_file  (const ToolArgs& args);
+ToolResult tool_delete_dir   (const ToolArgs& args);
+ToolResult tool_run_shell    (const ToolArgs& args);
+ToolResult tool_spawn_agent  (const ToolArgs& args, const std::string& config_path = "");

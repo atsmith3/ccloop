@@ -263,3 +263,75 @@ TEST(context_compact_empty_context_no_crash) {
     ctx.compact();
     CHECK_EQ(ctx.message_count(), size_t(0));
 }
+
+// ============================================================================
+// compact_to_summary with configurable keep_recent
+// ============================================================================
+
+TEST(context_compact_to_summary_keeps_configured_recent) {
+    ContextManager ctx(8000, 3);
+    ctx.push_system("system prompt");
+    for (int i = 0; i < 10; ++i) {
+        ctx.push_user("user message");
+        ctx.push_assistant("assistant reply");
+    }
+    // 1 system + 20 conversation messages = 21 total
+    ctx.compact_to_summary("condensed history");
+    // expect: 1 system + 1 summary + 3 recent = 5
+    CHECK_EQ(ctx.message_count(), size_t(5));
+}
+
+TEST(context_compact_to_summary_default_keep_8) {
+    ContextManager ctx(8000);  // default keep_recent=8
+    ctx.push_system("system prompt");
+    for (int i = 0; i < 10; ++i) {
+        ctx.push_user("user message");
+        ctx.push_assistant("assistant reply");
+    }
+    // 1 system + 20 conversation messages = 21 total
+    ctx.compact_to_summary("condensed history");
+    // expect: 1 system + 1 summary + 8 recent = 10
+    CHECK_EQ(ctx.message_count(), size_t(10));
+}
+
+TEST(context_compact_to_summary_keep_1) {
+    ContextManager ctx(8000, 1);
+    ctx.push_system("system prompt");
+    for (int i = 0; i < 5; ++i) {
+        ctx.push_user("user message");
+        ctx.push_assistant("assistant reply");
+    }
+    // 1 system + 10 messages = 11 total
+    ctx.compact_to_summary("condensed history");
+    // expect: 1 system + 1 summary + 1 recent = 3
+    CHECK_EQ(ctx.message_count(), size_t(3));
+}
+
+TEST(context_compact_to_summary_keep_exceeds_history) {
+    ContextManager ctx(8000, 20);
+    ctx.push_system("system prompt");
+    ctx.push_user("msg1");
+    ctx.push_assistant("msg2");
+    ctx.push_user("msg3");
+    ctx.push_assistant("msg4");
+    // 1 system + 4 messages = 5 total; keep_recent=20 > 4
+    ctx.compact_to_summary("condensed history");
+    // keep_from falls back to first_ns: all 4 non-system messages kept
+    // expect: 1 system + 1 summary + 4 = 6
+    CHECK_EQ(ctx.message_count(), size_t(6));
+}
+
+TEST(context_compact_to_summary_summary_content_preserved) {
+    ContextManager ctx(8000, 2);
+    ctx.push_system("system");
+    ctx.push_user("hello");
+    ctx.push_assistant("world");
+    ctx.compact_to_summary("my important summary");
+
+    std::string json = ctx.to_json();
+    JsonValue parsed = parse_json(json);
+    // Second message (index 1) should be the summary
+    auto content = parsed.as_array()[1]->get("content");
+    CHECK(content.has_value());
+    CHECK(content->as_string().find("my important summary") != std::string::npos);
+}

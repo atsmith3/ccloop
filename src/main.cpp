@@ -32,8 +32,8 @@ int main(int argc, char* argv[]) {
     std::string cli_model;
     std::string cli_endpoint;
     std::string cli_prompt;
-    bool cli_debug = false;
-    bool cli_yolo  = false;
+    bool cli_debug   = false;
+    bool cli_yolo    = false;
     AgentMode initial_mode = AgentMode::Plan;
 
     // Parse command-line arguments
@@ -97,10 +97,12 @@ int main(int argc, char* argv[]) {
     sa_term.sa_flags = SA_RESTART;
     sigaction(SIGTERM, &sa_term, nullptr);
 
+    if (loaded_config.api_key.empty()) {
+        std::cerr << "[warning] No API key set — requests will likely fail (set CCL_API_KEY or api_key in config)\n";
+    }
+
     // Run agent
     Ui ui;
     Agent agent(loaded_config, ui, initial_mode);
-    agent.run(cli_prompt);
-
-    return 0;
+    return agent.run(cli_prompt);
 }

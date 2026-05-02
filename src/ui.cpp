@@ -2,9 +2,18 @@
 #include "agent.h"
 #include "json.h"
 #include <iostream>
+#include <cctype>
+
+Ui::Ui() {}
 
 void Ui::show_message(std::string_view role, std::string_view content) {
+    if (role == "system") return;
     std::cout << "[" << role << "] " << content << "\n\n";
+    std::cout.flush();
+}
+
+void Ui::print_output(std::string_view message) {
+    std::cout << message << "\n";
     std::cout.flush();
 }
 
@@ -108,6 +117,59 @@ Approval Ui::request_approval(const ToolCall& call) {
     }
 }
 
+void Ui::show_plan(const std::string& plan) {
+    std::cout << "\n=== PLAN ===\n" << plan << "\n============\n\n";
+    std::cout.flush();
+}
+
+void Ui::show_completion(const std::string& summary) {
+    show_message("completed", summary);
+}
+
+PlanApproval Ui::request_plan_approval(std::string& refinement_out) {
+    std::cout << "Accept plan? [Y]es / [R]efine / [N]o: ";
+    std::cout.flush();
+
+    while (true) {
+        if (should_interrupt.load()) {
+            std::cout << "\n";
+            return PlanApproval::Reject;
+        }
+        std::string line;
+        if (!std::getline(std::cin, line)) {
+            std::cin.clear();
+            std::cout << "\n";
+            return PlanApproval::Reject;
+        }
+        while (!line.empty() && line.back() == '\r') line.pop_back();
+
+        if (line.empty()) {
+            if (should_interrupt.load()) return PlanApproval::Reject;
+            std::cout << "[Y]es / [R]efine / [N]o: ";
+            std::cout.flush();
+            continue;
+        }
+
+        char c = static_cast<char>(std::tolower(static_cast<unsigned char>(line[0])));
+        if (c == 'y' || line == "yes") return PlanApproval::Accept;
+        if (c == 'n' || line == "no")  return PlanApproval::Reject;
+        if (c == 'r' || line == "refine") {
+            std::cout << "Refinement: ";
+            std::cout.flush();
+            if (!std::getline(std::cin, refinement_out)) {
+                std::cin.clear();
+                refinement_out.clear();
+            }
+            while (!refinement_out.empty() && refinement_out.back() == '\r')
+                refinement_out.pop_back();
+            return PlanApproval::Refine;
+        }
+
+        std::cout << "[Y]es / [R]efine / [N]o: ";
+        std::cout.flush();
+    }
+}
+
 std::string Ui::wait_for_input() {
     std::cout << "> ";
     std::cout.flush();
@@ -123,5 +185,39 @@ std::string Ui::wait_for_input() {
         line.pop_back();
     }
 
+    return line;
+}
+
+std::string Ui::ask_user(const std::string& question, const std::vector<std::string>& options) {
+    std::cout << "\n[Question] " << question << "\n";
+
+    if (!options.empty()) {
+        for (size_t i = 0; i < options.size(); ++i)
+            std::cout << "  " << (i + 1) << ". " << options[i] << "\n";
+        size_t custom_idx = options.size() + 1;
+        std::cout << "  " << custom_idx << ". Custom response\n";
+
+        while (true) {
+            std::cout << "Choice [1-" << custom_idx << "]: ";
+            std::cout.flush();
+            std::string line;
+            if (!std::getline(std::cin, line)) { std::cin.clear(); break; }
+            while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
+                line.pop_back();
+            try {
+                size_t idx = std::stoul(line);
+                if (idx >= 1 && idx < custom_idx) return options[idx - 1];
+                if (idx == custom_idx) break;
+            } catch (...) {}
+            std::cout << "Enter a number between 1 and " << custom_idx << ".\n";
+        }
+    }
+
+    std::cout << "> ";
+    std::cout.flush();
+    std::string line;
+    if (!std::getline(std::cin, line)) { std::cin.clear(); return ""; }
+    while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r'))
+        line.pop_back();
     return line;
 }

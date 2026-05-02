@@ -123,7 +123,9 @@ LlmResponse OpenAiConnector::complete(const ContextManager& ctx,
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
-    std::string auth = "Authorization: Bearer " + cfg_.api_key;
+    std::string key = cfg_.api_key;
+    if (key.rfind("Bearer ", 0) == 0) key = key.substr(7);
+    std::string auth = "Authorization: Bearer " + key;
     headers = curl_slist_append(headers, auth.c_str());
 
     HttpResult result = http_post(url, body, headers);

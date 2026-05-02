@@ -31,7 +31,8 @@ struct Config {
     bool        debug         = false;
 
     // Context settings
-    size_t      token_limit = 8000;
+    size_t      token_limit            = 8000;
+    size_t      compaction_keep_recent = 8;
 
     // Tool approval permissions
     Permissions permissions;

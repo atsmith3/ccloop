@@ -433,3 +433,19 @@ TEST(config_mcp_env_var_sets_mcp_config) {
     CHECK_EQ(cfg.mcp_config, std::string("/tmp/test_mcp.json"));
     unsetenv("CCL_MCP_CONFIG");
 }
+
+// ============================================================================
+// compaction_keep_recent tests
+// ============================================================================
+
+TEST(config_compaction_keep_recent_default) {
+    Config cfg = Config::defaults();
+    CHECK_EQ(cfg.compaction_keep_recent, size_t(8));
+}
+
+TEST(config_compaction_keep_recent_parsed_from_toml) {
+    std::string path = create_temp_toml("compaction_keep_recent = 12\n");
+    Config cfg = Config::load(path);
+    CHECK_EQ(cfg.compaction_keep_recent, size_t(12));
+    fs::remove(path);
+}
