@@ -7,6 +7,10 @@
 class ContextManager {
 public:
     explicit ContextManager(size_t token_limit, size_t keep_recent = 8);
+    static ContextManager from_messages(std::vector<Message> msgs,
+                                        size_t total_tokens,
+                                        size_t token_limit,
+                                        size_t keep_recent);
 
     void push_system(std::string content);
     void replace_system(std::string content);  // Update system message, keep conversation

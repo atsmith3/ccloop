@@ -449,3 +449,55 @@ TEST(config_compaction_keep_recent_parsed_from_toml) {
     CHECK_EQ(cfg.compaction_keep_recent, size_t(12));
     fs::remove(path);
 }
+
+// ============================================================================
+// Path resolution and error handling
+// ============================================================================
+
+TEST(config_load_explicit_path_takes_priority) {
+    // Write two TOML files with different model names
+    std::string explicit_path = create_temp_toml("model = \"explicit-model\"\n");
+    std::string other_path    = create_temp_toml("model = \"other-model\"\n");
+    Config cfg = Config::load(explicit_path);
+    CHECK_EQ(cfg.model, std::string("explicit-model"));
+    fs::remove(explicit_path);
+    fs::remove(other_path);
+}
+
+TEST(config_load_silent_fail_bad_toml) {
+    // A field that cannot be parsed as integer should not throw; field keeps its default
+    std::string path = create_temp_toml("timeout_sec = not_a_number\n");
+    Config cfg;
+    // Must not throw
+    try { cfg = Config::load(path); } catch (...) {
+        fs::remove(path);
+        throw;
+    }
+    // timeout_sec falls back to default (30) because the entire file parse fails silently
+    CHECK_EQ(cfg.timeout_sec, 30);
+    fs::remove(path);
+}
+
+TEST(config_load_ccl_config_env_priority) {
+    std::string env_path = create_temp_toml("model = \"env-model\"\n");
+    setenv("CCL_CONFIG", env_path.c_str(), 1);
+    Config cfg = Config::load("");
+    unsetenv("CCL_CONFIG");
+    CHECK_EQ(cfg.model, std::string("env-model"));
+    fs::remove(env_path);
+}
+
+TEST(config_expand_home_no_crash_when_home_unset) {
+    // Save and unset HOME
+    const char* saved_home = std::getenv("HOME");
+    std::string saved(saved_home ? saved_home : "");
+    unsetenv("HOME");
+
+    // Config::load with a non-existent path starting with ~/ must not crash
+    Config cfg;
+    try { cfg = Config::load("~/nonexistent/config.toml"); } catch (...) {}
+
+    if (!saved.empty()) setenv("HOME", saved.c_str(), 1);
+    // Just checking no crash / no segfault — result is defaults
+    CHECK_EQ(cfg.timeout_sec, 30);
+}

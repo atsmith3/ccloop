@@ -335,3 +335,81 @@ TEST(context_compact_to_summary_summary_content_preserved) {
     CHECK(content.has_value());
     CHECK(content->as_string().find("my important summary") != std::string::npos);
 }
+
+// ============================================================================
+// from_messages factory
+// ============================================================================
+
+TEST(context_from_messages_roundtrip) {
+    std::vector<Message> msgs = {
+        {Message::Role::System,    "system prompt", 10},
+        {Message::Role::User,      "hello",          5},
+        {Message::Role::Assistant, "world",          5},
+    };
+    ContextManager ctx = ContextManager::from_messages(msgs, 20, 8000, 8);
+    CHECK_EQ(ctx.message_count(), size_t(3));
+    CHECK_EQ(ctx.messages()[0].role,    Message::Role::System);
+    CHECK_EQ(ctx.messages()[1].content, std::string("hello"));
+    CHECK_EQ(ctx.messages()[2].role,    Message::Role::Assistant);
+}
+
+TEST(context_from_messages_preserves_token_count) {
+    std::vector<Message> msgs = {
+        {Message::Role::User, "x", 999},
+    };
+    ContextManager ctx = ContextManager::from_messages(msgs, 999, 8000, 8);
+    CHECK_EQ(ctx.total_tokens(), size_t(999));
+}
+
+// ============================================================================
+// extract_conversation_for_summary
+// ============================================================================
+
+TEST(context_extract_conversation_format) {
+    ContextManager ctx(8000);
+    ctx.push_system("system prompt");
+    ctx.push_user("user message");
+    ctx.push_assistant("assistant reply");
+
+    std::string summary = ctx.extract_conversation_for_summary();
+    CHECK(summary.find("User: user message")         != std::string::npos);
+    CHECK(summary.find("Assistant: assistant reply") != std::string::npos);
+    CHECK(summary.find("system prompt")              == std::string::npos);  // system excluded
+}
+
+// ============================================================================
+// needs_compaction boundary
+// ============================================================================
+
+TEST(context_needs_compaction_at_exact_limit) {
+    ContextManager ctx(100);
+    // Drive total_tokens to exactly 100 via sync_token_count
+    LlmResponse::Usage usage;
+    usage.total_tokens = 100;
+    ctx.sync_token_count(usage);
+    CHECK(ctx.needs_compaction());  // >= limit → true
+}
+
+TEST(context_needs_compaction_below_limit) {
+    ContextManager ctx(100);
+    LlmResponse::Usage usage;
+    usage.total_tokens = 99;
+    ctx.sync_token_count(usage);
+    CHECK(!ctx.needs_compaction());
+}
+
+// ============================================================================
+// to_json special characters
+// ============================================================================
+
+TEST(context_to_json_escapes_special_chars) {
+    ContextManager ctx(8000);
+    ctx.push_user("say \"hello\"\nand bye");
+    std::string json = ctx.to_json();
+    // Must be valid JSON — parse_json would throw on invalid
+    JsonValue parsed = parse_json(json);
+    CHECK(parsed.is_array());
+    auto content = parsed.as_array()[0]->get("content");
+    CHECK(content.has_value());
+    CHECK_EQ(content->as_string(), std::string("say \"hello\"\nand bye"));
+}

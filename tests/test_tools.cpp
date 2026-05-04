@@ -1139,3 +1139,72 @@ TEST(tool_find_symbol_path_restricts_search) {
     CHECK(result.content.find(dir_a) != std::string::npos);
     CHECK(result.content.find(dir_b) == std::string::npos);
 }
+
+// ============================================================================
+// Additional edge case tests
+// ============================================================================
+
+TEST(tool_search_files_truncation) {
+    TmpDir tmp;
+    // Write a file with many matching lines to push output past 8000 bytes
+    std::ofstream f(tmp.path + "/big.txt");
+    for (int i = 0; i < 500; ++i)
+        f << "match_this_pattern line " << i << " padding_padding_padding_padding\n";
+    f.close();
+
+    ToolArgs args;
+    args["path"]    = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+    args["pattern"] = JsonValue(); args["pattern"].data.emplace<std::string>("match_this_pattern");
+
+    ToolResult result = tool_search_files(args);
+    CHECK(result.success);
+    CHECK(!result.content.empty());
+    CHECK(result.content.find("truncated") != std::string::npos);
+}
+
+TEST(tool_find_symbol_cpp_searches_headers_and_sources) {
+    TmpDir tmp;
+    // Create a .cpp and a .h file each containing the symbol
+    { std::ofstream f(tmp.path + "/code.cpp"); f << "void targetFunc() {}\n"; }
+    { std::ofstream f(tmp.path + "/code.h");   f << "void targetFunc();\n"; }
+    { std::ofstream f(tmp.path + "code.py");   f << "def targetFunc(): pass\n"; }
+
+    ToolArgs args;
+    args["symbol"]   = JsonValue(); args["symbol"].data.emplace<std::string>("targetFunc");
+    args["path"]     = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+    args["language"] = JsonValue(); args["language"].data.emplace<std::string>("c++");
+
+    ToolResult result = tool_find_symbol(args);
+    CHECK(result.success);
+    CHECK(result.content.find("code.cpp") != std::string::npos);
+    CHECK(result.content.find("code.h")   != std::string::npos);
+    // Python file should not appear (wrong language filter)
+    CHECK(result.content.find(".py") == std::string::npos);
+}
+
+TEST(tool_run_shell_nonzero_exit_code_in_error) {
+    ToolArgs args;
+    args["command"] = JsonValue();
+    args["command"].data.emplace<std::string>("bash -c 'exit 42'");
+
+    ToolResult result = tool_run_shell(args);
+    CHECK(!result.success);
+    CHECK(result.error.find("42") != std::string::npos);
+}
+
+TEST(make_registry_agent_native_flags_set) {
+    Config cfg = Config::defaults();
+    int called = 0;
+    AgentHandlers handlers = {
+        {"present_plan", [&](const ToolArgs&) { ++called; return ToolResult::ok(""); }},
+        {"print",        [&](const ToolArgs&) { ++called; return ToolResult::ok(""); }},
+        {"ask_user",     [&](const ToolArgs&) { ++called; return ToolResult::ok(""); }},
+    };
+    ToolRegistry reg = make_registry(AgentMode::Plan, cfg, false, handlers);
+
+    for (const char* name : {"present_plan", "print", "ask_user"}) {
+        auto t = reg.find(name);
+        CHECK(t.has_value());
+        CHECK(t.value()->agent_native);
+    }
+}

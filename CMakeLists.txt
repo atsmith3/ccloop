@@ -71,6 +71,7 @@ add_executable(ccl_test
     tests/test_tools.cpp
     tests/test_llm_client.cpp
     tests/test_mcp_client.cpp
+    tests/test_agent.cpp
     src/signals.cpp
     src/json.cpp
     src/config.cpp
@@ -82,6 +83,8 @@ add_executable(ccl_test
     src/connector_openai.cpp
     src/connector_bedrock.cpp
     src/llm_client.cpp
+    src/agent.cpp
+    src/ui.cpp
 )
 target_include_directories(ccl_test PRIVATE src tests)
 target_link_libraries(ccl_test PRIVATE CURL::libcurl Threads::Threads)

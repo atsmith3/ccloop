@@ -1,12 +1,22 @@
 #pragma once
 
 #include <unordered_set>
+#include <functional>
+#include <vector>
 #include "config.h"
 #include "context.h"
 #include "tools.h"
 #include "llm_client.h"
 #include "signals.h"
 #include "ui.h"
+
+using SlashFn = std::function<void(const std::string& arg)>;
+
+struct SlashCommand {
+    std::string name;
+    std::string description;  // shown verbatim in /help output
+    SlashFn     fn;
+};
 
 class Agent {
 public:
@@ -28,6 +38,7 @@ private:
     bool           plan_rejected_            = false;
     bool           task_done_called_          = false;
     std::unordered_set<size_t> seen_calls_;
+    std::vector<SlashCommand>  slash_commands_;
 
     void loop();
     void compact_with_summary();
@@ -36,8 +47,13 @@ private:
     ToolResult handle_print(const ToolArgs& args);
     ToolResult handle_ask_user(const ToolArgs& args);
     bool requires_approval(const ToolDef& def) const;
+    bool save_context   (const std::string& path) const;
+    bool restore_context(const std::string& path);
     bool handle_slash_command(std::string_view input);
     void transition_to(AgentMode next);
     void rebuild_registry();
+    void build_slash_commands();
     std::string system_prompt() const;
+
+    friend struct AgentTests;
 };
