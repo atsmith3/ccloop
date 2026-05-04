@@ -5,6 +5,16 @@
 ContextManager::ContextManager(size_t token_limit, size_t keep_recent)
     : token_limit_(token_limit), keep_recent_(keep_recent) {}
 
+ContextManager ContextManager::from_messages(std::vector<Message> msgs,
+                                             size_t total_tokens,
+                                             size_t token_limit,
+                                             size_t keep_recent) {
+    ContextManager ctx(token_limit, keep_recent);
+    ctx.messages_     = std::move(msgs);
+    ctx.total_tokens_ = total_tokens;
+    return ctx;
+}
+
 void ContextManager::push_system(std::string content) {
     Message msg;
     msg.role = Message::Role::System;

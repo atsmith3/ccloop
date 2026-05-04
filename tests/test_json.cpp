@@ -232,3 +232,34 @@ TEST(json_parse_whitespace_around_value) {
 TEST(json_parse_empty_input_throws) {
     CHECK_THROWS(parse_json(""));
 }
+
+TEST(json_parse_unicode_escape_ascii) {
+    // A is 'A', B is 'B'
+    JsonValue v = parse_json("\"\\u0041\\u0042\"");
+    CHECK(v.is_string());
+    CHECK_EQ(v.as_string(), std::string("AB"));
+}
+
+TEST(json_escape_all_control_chars) {
+    // All bytes 0x00–0x1f must be escaped — either \uXXXX or a named escape (\n, \t, etc.)
+    for (int c = 0x00; c <= 0x1f; ++c) {
+        std::string input(1, static_cast<char>(c));
+        std::string escaped = escape_json(input);
+        // Raw control character must not appear in the escaped output
+        CHECK(escaped.find(static_cast<char>(c)) == std::string::npos);
+        // All escape sequences start with a backslash
+        CHECK(!escaped.empty() && escaped[0] == '\\');
+    }
+}
+
+TEST(json_serialize_float_roundtrip) {
+    double original = 1.0 / 3.0;
+    JsonValue v;
+    v.data.emplace<double>(original);
+    std::string serialized = to_json(v);
+    JsonValue parsed = parse_json(serialized);
+    CHECK(parsed.is_number());
+    double diff = parsed.as_number() - original;
+    if (diff < 0) diff = -diff;
+    CHECK(diff < 1e-14);
+}

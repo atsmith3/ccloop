@@ -1,6 +1,8 @@
 #include "agent.h"
+#include "json.h"
 #include <algorithm>
 #include <iostream>
+#include <fstream>
 #include <atomic>
 #include <future>
 #include <sstream>
@@ -10,6 +12,7 @@ Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
       context_(config.token_limit, config.compaction_keep_recent), llm_(config),
       ui_(ui) {
     rebuild_registry();
+    build_slash_commands();
 }
 
 int Agent::run(const std::string& initial_prompt) {
@@ -451,73 +454,173 @@ ToolResult Agent::handle_ask_user(const ToolArgs& args) {
     return ToolResult::ok("User response: " + response);
 }
 
-bool Agent::handle_slash_command(std::string_view input) {
-    if (input.empty() || input[0] != '/') {
-        return false;
+bool Agent::save_context(const std::string& path) const {
+    std::ofstream f(path);
+    if (!f) return false;
+
+    auto role_str = [](Message::Role r) -> std::string_view {
+        switch (r) {
+            case Message::Role::System:    return "system";
+            case Message::Role::User:      return "user";
+            case Message::Role::Assistant: return "assistant";
+        }
+        return "user";
+    };
+
+    f << "{\n"
+      << "  \"version\": 1,\n"
+      << "  \"mode\": \"" << (mode_ == AgentMode::Plan ? "plan" : "act") << "\",\n"
+      << "  \"total_tokens\": " << context_.total_tokens() << ",\n"
+      << "  \"messages\": [\n";
+
+    const auto& msgs = context_.messages();
+    for (size_t i = 0; i < msgs.size(); ++i) {
+        f << "    {\"role\": \"" << role_str(msgs[i].role)
+          << "\", \"content\": \"" << escape_json(msgs[i].content)
+          << "\", \"estimated_tokens\": " << msgs[i].estimated_tokens << "}";
+        if (i + 1 < msgs.size()) f << ",";
+        f << "\n";
     }
+    f << "  ]\n}\n";
+    return f.good();
+}
+
+bool Agent::restore_context(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return false;
+    std::ostringstream ss;
+    ss << f.rdbuf();
+
+    JsonValue root;
+    try { root = parse_json(ss.str()); } catch (...) { return false; }
+
+    auto ver = root.get("version");
+    if (!ver || !ver->is_number() || static_cast<int>(ver->as_number()) != 1) return false;
+
+    auto mode_v = root.get("mode");
+    if (!mode_v || !mode_v->is_string()) return false;
+    AgentMode new_mode = (mode_v->as_string() == "act") ? AgentMode::Act : AgentMode::Plan;
+
+    auto total_v = root.get("total_tokens");
+    size_t total_tokens = (total_v && total_v->is_number())
+        ? static_cast<size_t>(total_v->as_number()) : 0;
+
+    auto msgs_v = root.get("messages");
+    if (!msgs_v || !msgs_v->is_array()) return false;
+
+    std::vector<Message> msgs;
+    for (const auto& m : msgs_v->as_array()) {
+        if (!m) continue;
+        auto role_v    = m->get("role");
+        auto content_v = m->get("content");
+        auto tokens_v  = m->get("estimated_tokens");
+        if (!role_v || !content_v) continue;
+
+        Message::Role role;
+        const std::string& rs = role_v->as_string();
+        if      (rs == "system")    role = Message::Role::System;
+        else if (rs == "assistant") role = Message::Role::Assistant;
+        else                        role = Message::Role::User;
+
+        size_t est = (tokens_v && tokens_v->is_number())
+            ? static_cast<size_t>(tokens_v->as_number()) : 0;
+        msgs.push_back({role, content_v->as_string(), est});
+    }
+
+    context_ = ContextManager::from_messages(
+        std::move(msgs), total_tokens,
+        config_.token_limit, config_.compaction_keep_recent);
+    mode_ = new_mode;
+    rebuild_registry();
+    return true;
+}
+
+void Agent::build_slash_commands() {
+    slash_commands_.clear();
+
+    slash_commands_.push_back({"mode", "plan|act — switch modes",
+        [this](const std::string& arg) {
+            if      (arg == "plan") transition_to(AgentMode::Plan);
+            else if (arg == "act")  transition_to(AgentMode::Act);
+        }});
+
+    slash_commands_.push_back({"compact", "summarize and compact the context window",
+        [this](const std::string&) { compact_with_summary(); }});
+
+    slash_commands_.push_back({"clear", "clear context and start fresh",
+        [this](const std::string&) {
+            ContextManager new_ctx(config_.token_limit, config_.compaction_keep_recent);
+            new_ctx.push_system(system_prompt());
+            context_ = std::move(new_ctx);
+            ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+        }});
+
+    slash_commands_.push_back({"context", "save <file> | restore <file>",
+        [this](const std::string& arg) {
+            size_t sp = arg.find(' ');
+            std::string sub  = (sp == std::string::npos) ? arg : arg.substr(0, sp);
+            std::string file = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
+            while (!file.empty() && file[0] == ' ') file = file.substr(1);
+
+            if (sub == "save" && !file.empty()) {
+                if (save_context(file))
+                    std::cout << "[context saved to " << file << "]\n";
+                else
+                    std::cout << "[error] could not write " << file << "\n";
+                std::cout.flush();
+            } else if (sub == "restore" && !file.empty()) {
+                if (restore_context(file)) {
+                    ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
+                    std::cout << "[context restored from " << file << "]\n";
+                    std::cout.flush();
+                } else {
+                    std::cout << "[error] could not restore from " << file << "\n";
+                    std::cout.flush();
+                }
+            } else {
+                std::cout << "Usage: /context save <file> | /context restore <file>\n";
+                std::cout.flush();
+            }
+        }});
+
+    slash_commands_.push_back({"edit", "open $EDITOR to compose a multi-line prompt",
+        [this](const std::string&) {
+            std::string text = ui_.open_editor(config_.editor);
+            if (text.empty()) {
+                std::cout << "[edit cancelled]\n";
+                std::cout.flush();
+            } else {
+                pending_execution_ = std::move(text);
+            }
+        }});
+
+    slash_commands_.push_back({"quit", "exit",
+        [](const std::string&) { should_exit = true; }});
+
+    slash_commands_.push_back({"help", "show this help",
+        [this](const std::string&) {
+            std::cout << "Slash commands:\n";
+            for (const auto& sc : slash_commands_)
+                std::cout << "  /" << sc.name << " — " << sc.description << "\n";
+            std::cout.flush();
+        }});
+}
+
+bool Agent::handle_slash_command(std::string_view input) {
+    if (input.empty() || input[0] != '/') return false;
 
     std::string cmd(input);
     size_t space_pos = cmd.find(' ');
     std::string command = (space_pos == std::string::npos)
-        ? cmd.substr(1)
-        : cmd.substr(1, space_pos - 1);
+        ? cmd.substr(1) : cmd.substr(1, space_pos - 1);
     std::string arg = (space_pos == std::string::npos)
-        ? ""
-        : cmd.substr(space_pos + 1);
-
-    // Trim arg
-    while (!arg.empty() && arg[0] == ' ') arg = arg.substr(1);
+        ? "" : cmd.substr(space_pos + 1);
+    while (!arg.empty() && arg[0] == ' ')     arg = arg.substr(1);
     while (!arg.empty() && arg.back() == ' ') arg.pop_back();
 
-    if (command == "mode") {
-        if (arg == "plan") {
-            transition_to(AgentMode::Plan);
-        } else if (arg == "act") {
-            transition_to(AgentMode::Act);
-        }
-        return true;
+    for (const auto& sc : slash_commands_) {
+        if (sc.name == command) { sc.fn(arg); return true; }
     }
-
-    if (command == "quit") {
-        should_exit = true;
-        return true;
-    }
-
-    if (command == "compact") {
-        compact_with_summary();
-        return true;
-    }
-
-    if (command == "help") {
-        std::cout << "Slash commands:\n"
-                  << "  /mode plan|act - switch modes\n"
-                  << "  /compact - summarize and compact the context window\n"
-                  << "  /edit - open $EDITOR to compose a multi-line prompt\n"
-                  << "  /quit - exit\n"
-                  << "  /clear - clear context\n"
-                  << "  /help - show this help\n";
-        return true;
-    }
-
-    if (command == "clear") {
-        ContextManager new_ctx(config_.token_limit, config_.compaction_keep_recent);
-        new_ctx.push_system(system_prompt());
-        context_ = std::move(new_ctx);
-        ui_.update_tokens(context_.total_tokens(), config_.token_limit);
-        return true;
-    }
-
-    if (command == "edit") {
-        std::string text = ui_.open_editor(config_.editor);
-        if (text.empty()) {
-            std::cout << "[edit cancelled]\n";
-            std::cout.flush();
-        } else {
-            pending_execution_ = std::move(text);
-        }
-        return true;
-    }
-
     return false;
 }
 
