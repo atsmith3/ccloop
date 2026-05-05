@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
+#include <iostream>
 #include <sstream>
 
 namespace fs = std::filesystem;
@@ -57,6 +58,10 @@ static void parse_toml(const std::string& path, Config& cfg) {
         // Handle sections
         if (line[0] == '[' && line.back() == ']') {
             current_section = trim(line.substr(1, line.size() - 2));
+            if (current_section != "permissions") {
+                std::cerr << "warning: " << path << ": unrecognized section '"
+                          << current_section << "' (ignored)\n";
+            }
             continue;
         }
 
@@ -79,6 +84,7 @@ static void parse_toml(const std::string& path, Config& cfg) {
             else if (key == "write")  cfg.permissions.auto_approve_write  = bool_val;
             else if (key == "delete") cfg.permissions.auto_approve_delete = bool_val;
             else if (key == "shell")  cfg.permissions.auto_approve_shell  = bool_val;
+            else std::cerr << "warning: " << path << ": unrecognized key '" << key << "' (ignored)\n";
             continue;
         }
 
@@ -115,6 +121,8 @@ static void parse_toml(const std::string& path, Config& cfg) {
             cfg.mcp_config = parse_string_value(value);
         } else if (key == "editor") {
             cfg.editor = parse_string_value(value);
+        } else if (current_section.empty()) {
+            std::cerr << "warning: " << path << ": unrecognized key '" << key << "' (ignored)\n";
         }
     }
 }

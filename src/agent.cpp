@@ -9,7 +9,8 @@
 
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode),
-      context_(config.token_limit, config.compaction_keep_recent), llm_(config),
+      context_(config.token_limit, config.compaction_keep_recent),
+      connector_(make_connector(config)),
       ui_(ui) {
     rebuild_registry();
     build_slash_commands();
@@ -148,7 +149,7 @@ void Agent::compact_with_summary() {
         "resolved. Output only the summary with no preamble.");
     summary_ctx.push_user("Summarize this conversation:\n\n" + conversation);
 
-    LlmResponse resp = llm_.complete(summary_ctx, {});
+    LlmResponse resp = connector_->complete(summary_ctx, {});
     if (resp.is_error || resp.content.empty()) {
         ui_.show_error("[compact] Summarization failed — falling back to rolling window");
         context_.compact();
@@ -195,7 +196,7 @@ void Agent::loop() {
                 compact_with_summary();
             }
 
-            LlmResponse response = llm_.complete(context_, registry_.definitions());
+            LlmResponse response = connector_->complete(context_, registry_.definitions());
 
             if (response.is_error) {
                 // Suppress curl-abort errors that result from Ctrl+C interruption
@@ -284,10 +285,12 @@ void Agent::loop() {
 }
 
 bool Agent::requires_approval(const ToolDef& def) const {
-    if (def.permission == "read")   return !config_.permissions.auto_approve_read;
-    if (def.permission == "write")  return !config_.permissions.auto_approve_write;
-    if (def.permission == "delete") return !config_.permissions.auto_approve_delete;
-    if (def.permission == "shell")  return !config_.permissions.auto_approve_shell;
+    switch (def.permission) {
+        case Permission::Read:   return !config_.permissions.auto_approve_read;
+        case Permission::Write:  return !config_.permissions.auto_approve_write;
+        case Permission::Delete: return !config_.permissions.auto_approve_delete;
+        case Permission::Shell:  return !config_.permissions.auto_approve_shell;
+    }
     return true;  // unknown permission: gate by default
 }
 

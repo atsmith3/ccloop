@@ -32,12 +32,14 @@ struct ToolParam {
     bool        required;
 };
 
+enum class Permission { Read, Write, Delete, Shell };
+
 // Tool definition -- sent to LLM
 struct ToolDef {
     std::string            name;
     std::string            description;
     std::vector<ToolParam> params;
-    std::string            permission;  // "read" | "write" | "delete" | "shell"
+    Permission             permission = Permission::Read;
 };
 
 // Parsed tool call from LLM response
