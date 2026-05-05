@@ -15,7 +15,6 @@ enum class AgentMode {
 enum class Approval {
     Accept,
     Reject,
-    Edit,
 };
 
 enum class PlanApproval {

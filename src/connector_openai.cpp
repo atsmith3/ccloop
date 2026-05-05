@@ -66,7 +66,7 @@ LlmResponse OpenAiConnector::parse_response_json(const std::string& body) {
 
                             ToolCall call;
                             call.id   = id_opt.has_value() ? id_opt->as_string()
-                                                           : "tc_" + std::to_string(idx);
+                                                           : make_fallback_call_id(idx);
                             call.name = name_opt->as_string();
 
                             // arguments is a JSON-encoded string — parse it
@@ -131,7 +131,7 @@ LlmResponse OpenAiConnector::complete(const ContextManager& ctx,
     HttpResult result = http_post(url, body, headers);
     curl_slist_free_all(headers);
 
-    if (result.status != 200) {
+    if (result.status < 200 || result.status >= 300) {
         return make_http_error(result);
     }
 

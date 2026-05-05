@@ -1,6 +1,5 @@
 #include "agent.h"
 #include "json.h"
-#include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <atomic>
@@ -141,6 +140,8 @@ void Agent::compact_with_summary() {
         return;
     }
 
+    // 4× the main limit so the summarization call itself is never truncated —
+    // it receives the full conversation text plus the system prompt.
     ContextManager summary_ctx(config_.token_limit * 4);
     summary_ctx.push_system(
         "You are a helpful assistant. Summarize the following conversation concisely but "
@@ -349,11 +350,15 @@ void Agent::handle_tool_calls(const std::vector<ToolCall>& calls) {
             }
 
             if (pc.approved) {
-                std::string key = call.name + ":";
-                std::vector<std::pair<std::string, std::string>> kv;
-                for (const auto& [k, v] : call.args) kv.push_back({k, to_json(v)});
-                std::sort(kv.begin(), kv.end());
-                for (const auto& [k, v] : kv) key += k + "=" + v + ";";
+                // Key: name + args serialized as a sorted-key JSON object.
+                // Using to_json() avoids delimiter collisions that a hand-rolled
+                // "k=v;" format would have if names or values contain those chars.
+                JsonValue args_obj;
+                JsonObject obj;
+                for (const auto& [k, v] : call.args)
+                    obj[k] = std::make_shared<JsonValue>(v);
+                args_obj.data = std::move(obj);
+                std::string key = call.name + ":" + to_json(args_obj);
                 if (!seen_calls_.insert(std::hash<std::string>{}(key)).second) {
                     pc.approved = false;
                     pc.reject_reason = "(skipped) Identical call already executed this turn.";

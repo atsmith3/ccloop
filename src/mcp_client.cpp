@@ -70,15 +70,7 @@ size_t McpClient::header_callback(char* ptr, size_t size, size_t nmemb, void* us
     return len;
 }
 
-// POST a JSON-RPC request. Returns the "result" value on success, nullopt on error.
-std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const JsonValue& params) {
-    if (!curl_) return std::nullopt;
-    curl_easy_reset(curl_);
-
-    int id = next_id_++;
-    std::string body = build_rpc(id, method, params);
-    std::string response_body;
-
+curl_slist* McpClient::build_headers() const {
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
@@ -90,6 +82,19 @@ std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const Js
         std::string auth = "Authorization: Bearer " + server_.api_key;
         headers = curl_slist_append(headers, auth.c_str());
     }
+    return headers;
+}
+
+// POST a JSON-RPC request. Returns the "result" value on success, nullopt on error.
+std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const JsonValue& params) {
+    if (!curl_) return std::nullopt;
+    curl_easy_reset(curl_);
+
+    int id = next_id_++;
+    std::string body = build_rpc(id, method, params);
+    std::string response_body;
+
+    struct curl_slist* headers = build_headers();
 
     std::string captured_session_id;
     curl_easy_setopt(curl_, CURLOPT_URL,            server_.url.c_str());
@@ -157,17 +162,7 @@ void McpClient::send_notification(const std::string& method) {
     std::string body = build_notification(method);
     std::string response_body;
 
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "Accept: application/json, text/event-stream");
-    if (!session_id_.empty()) {
-        std::string sid = "Mcp-Session-Id: " + session_id_;
-        headers = curl_slist_append(headers, sid.c_str());
-    }
-    if (!server_.api_key.empty()) {
-        std::string auth = "Authorization: Bearer " + server_.api_key;
-        headers = curl_slist_append(headers, auth.c_str());
-    }
+    struct curl_slist* headers = build_headers();
 
     curl_easy_setopt(curl_, CURLOPT_URL,           server_.url.c_str());
     curl_easy_setopt(curl_, CURLOPT_POSTFIELDS,     body.c_str());

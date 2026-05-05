@@ -30,6 +30,8 @@ private:
                                       const JsonValue& params = JsonValue{});
     void send_notification(const std::string& method);
 
+    curl_slist* build_headers() const;
+
     static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
     static size_t header_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
 

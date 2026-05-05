@@ -43,6 +43,11 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
     curl_easy_setopt(curl_, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl_, CURLOPT_XFERINFOFUNCTION, interrupt_progress_cb);
 
+    // Exponential backoff: 1s, 2s, 4s (capped at 3 doublings)
+    auto retry_delay = [](int attempt) {
+        return std::chrono::milliseconds(1000 << std::min(attempt, 2));
+    };
+
     int retry_count = 0;
 
     while (retry_count <= cfg_.max_retries) {
@@ -56,8 +61,7 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
                     || should_interrupt.load()) {
                 return {500, std::string(curl_easy_strerror(res))};
             }
-            int delay_ms = 1000 << std::min(retry_count, 2);
-            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+            std::this_thread::sleep_for(retry_delay(retry_count));
             ++retry_count;
             continue;
         }
@@ -75,8 +79,7 @@ ConnectorBase::HttpResult ConnectorBase::http_post(
         }
 
         if (retry_count < cfg_.max_retries && !should_interrupt.load()) {
-            int delay_ms = 1000 << std::min(retry_count, 2);
-            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+            std::this_thread::sleep_for(retry_delay(retry_count));
         }
         ++retry_count;
     }

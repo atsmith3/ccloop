@@ -59,6 +59,17 @@ std::optional<const Tool*> ToolRegistry::find(const std::string& name) const {
 }
 
 // ============================================================================
+// File traversal constants
+// ============================================================================
+
+static const std::set<std::string> kSkipDirs = {
+    "venv", "env", ".venv", "node_modules", "__pycache__",
+    "dist", "build", ".tox", ".eggs", "site-packages"
+};
+
+static constexpr size_t kMaxRegexLineBytes = 2048;
+
+// ============================================================================
 // Argument helpers
 // ============================================================================
 
@@ -193,12 +204,6 @@ ToolResult tool_search_files(const ToolArgs& args) {
         std::ostringstream ss;
         bool found_any = false;
 
-        // Common non-project directories to skip (in addition to hidden dirs)
-        static const std::set<std::string> skip_dirs = {
-            "venv", "env", ".venv", "node_modules", "__pycache__",
-            "dist", "build", ".tox", ".eggs", "site-packages"
-        };
-
         // Use explicit iterator so we can skip hidden directories (.git, etc.)
         bool truncated = false;
         for (auto it = fs::recursive_directory_iterator(*path);
@@ -206,7 +211,7 @@ ToolResult tool_search_files(const ToolArgs& args) {
             // Skip hidden directories and common non-project dirs
             if (it->is_directory()) {
                 const std::string& dname = it->path().filename().string();
-                if (!dname.empty() && (dname[0] == '.' || skip_dirs.count(dname))) {
+                if (!dname.empty() && (dname[0] == '.' || kSkipDirs.count(dname))) {
                     it.disable_recursion_pending();
                     continue;
                 }
@@ -233,7 +238,7 @@ ToolResult tool_search_files(const ToolArgs& args) {
                 int line_no = 0;
                 while (std::getline(file, line)) {
                     ++line_no;
-                    if (line.size() > 2048) continue;  // prevent catastrophic backtracking
+                    if (line.size() > kMaxRegexLineBytes) continue;  // prevent catastrophic backtracking
                     if (std::regex_search(line, re)) {
                         if (found_any) ss << "\n";
                         ss << it->path().string() << ":" << line_no << ": " << line;
@@ -468,11 +473,6 @@ ToolResult tool_find_symbol(const ToolArgs& args) {
             if (!g.empty()) globs.push_back(g);
     }
 
-    static const std::set<std::string> skip_dirs = {
-        "venv", "env", ".venv", "node_modules", "__pycache__",
-        "dist", "build", ".tox", ".eggs", "site-packages"
-    };
-
     std::ostringstream ss;
     bool found_any = false, truncated = false;
     try {
@@ -480,7 +480,7 @@ ToolResult tool_find_symbol(const ToolArgs& args) {
              it != fs::recursive_directory_iterator(); ++it) {
             if (it->is_directory()) {
                 const std::string& dname = it->path().filename().string();
-                if (!dname.empty() && (dname[0] == '.' || skip_dirs.count(dname))) {
+                if (!dname.empty() && (dname[0] == '.' || kSkipDirs.count(dname))) {
                     it.disable_recursion_pending();
                     continue;
                 }
@@ -499,7 +499,7 @@ ToolResult tool_find_symbol(const ToolArgs& args) {
             int line_no = 0;
             while (std::getline(file, line)) {
                 ++line_no;
-                if (line.size() > 2048) continue;
+                if (line.size() > kMaxRegexLineBytes) continue;
                 if (std::regex_search(line, re)) {
                     if (found_any) ss << "\n";
                     ss << it->path().string() << ":" << line_no << ": " << line;
