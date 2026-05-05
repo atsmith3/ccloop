@@ -6,7 +6,7 @@
 #include "config.h"
 #include "context.h"
 #include "tools.h"
-#include "llm_client.h"
+#include "connector.h"
 #include "signals.h"
 #include "ui.h"
 
@@ -24,10 +24,10 @@ public:
     int run(const std::string& initial_prompt = "");
 
 private:
-    Config         config_;
-    AgentMode      mode_ = AgentMode::Plan;
-    ContextManager context_;
-    LlmClient      llm_;
+    Config                     config_;
+    AgentMode                  mode_ = AgentMode::Plan;
+    ContextManager             context_;
+    std::unique_ptr<Connector> connector_;
     ToolRegistry   registry_;
     Ui&            ui_;
     std::string    pending_execution_;

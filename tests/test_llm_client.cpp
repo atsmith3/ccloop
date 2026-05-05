@@ -50,7 +50,7 @@ TEST(openai_request_has_tools_array) {
 
     std::vector<ToolDef> tools = {{
         "read_file", "Read a file",
-        {{"path", "string", "File path", true}}, "read"
+        {{"path", "string", "File path", true}}, Permission::Read
     }};
 
     std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);
@@ -222,7 +222,7 @@ TEST(bedrock_request_has_tool_config) {
 
     std::vector<ToolDef> tools = {{
         "read_file", "Read a file",
-        {{"path", "string", "File path", true}}, "read"
+        {{"path", "string", "File path", true}}, Permission::Read
     }};
 
     std::string request = BedrockConnector::build_request_json(ctx, cfg, tools);
@@ -295,8 +295,8 @@ TEST(openai_request_optional_params_not_in_required) {
         "write_file", "Write a file",
         {
             {"path",    "string", "File path",    true},
-            {"content", "string", "File content", false}  // optional
-        }, "write"
+            {"content", "string", "File content", false}
+        }, Permission::Write
     }};
 
     std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);
@@ -320,7 +320,7 @@ TEST(openai_request_tool_no_params) {
     ContextManager ctx(8000);
     ctx.push_user("go");
 
-    std::vector<ToolDef> tools = {{"list_files", "List all files", {}, ""}};
+    std::vector<ToolDef> tools = {{"list_files", "List all files", {}, Permission::Read}};
     std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);
     JsonValue parsed = parse_json(request);
 
@@ -341,7 +341,7 @@ TEST(openai_request_escapes_tool_description) {
 
     std::vector<ToolDef> tools = {{
         "tool", "Say \"hello\" and \\goodbye\\",
-        {{"arg", "string", "Arg with \"quotes\"", true}}, ""
+        {{"arg", "string", "Arg with \"quotes\"", true}}, Permission::Read
     }};
 
     std::string request = OpenAiConnector::build_request_json(ctx, cfg, tools);

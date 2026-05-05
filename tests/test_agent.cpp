@@ -138,7 +138,7 @@ TEST(agent_requires_approval_read_auto) {
     cfg.permissions.auto_approve_read = true;
     Ui ui;
     Agent a(cfg, ui);
-    ToolDef def; def.permission = "read";
+    ToolDef def; def.permission = Permission::Read;
     CHECK(!AgentTests::requires_approval(a, def));
 }
 
@@ -147,7 +147,7 @@ TEST(agent_requires_approval_read_manual) {
     cfg.permissions.auto_approve_read = false;
     Ui ui;
     Agent a(cfg, ui);
-    ToolDef def; def.permission = "read";
+    ToolDef def; def.permission = Permission::Read;
     CHECK(AgentTests::requires_approval(a, def));
 }
 
@@ -156,14 +156,14 @@ TEST(agent_requires_approval_write_auto) {
     cfg.permissions.auto_approve_write = true;
     Ui ui;
     Agent a(cfg, ui);
-    ToolDef def; def.permission = "write";
+    ToolDef def; def.permission = Permission::Write;
     CHECK(!AgentTests::requires_approval(a, def));
 }
 
-TEST(agent_requires_approval_unknown_always_requires) {
+TEST(agent_requires_approval_shell_default) {
     Ui ui;
     Agent a(test_cfg(), ui);
-    ToolDef def; def.permission = "unknown_permission";
+    ToolDef def; def.permission = Permission::Shell;
     CHECK(AgentTests::requires_approval(a, def));
 }
 
