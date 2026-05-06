@@ -453,7 +453,7 @@ TEST(openai_parse_missing_tool_id_uses_fallback) {
     })";
     LlmResponse r = OpenAiConnector::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].id, std::string("tc_0"));
+    CHECK_EQ(r.tool_calls[0].id, std::string("call_0"));
 }
 
 // ============================================================================
@@ -574,7 +574,7 @@ TEST(bedrock_parse_missing_tool_use_id_uses_fallback) {
     })";
     LlmResponse r = BedrockConnector::parse_response_json(body);
     CHECK_EQ(r.tool_calls.size(), size_t(1));
-    CHECK_EQ(r.tool_calls[0].id, std::string("bedrock_0"));
+    CHECK_EQ(r.tool_calls[0].id, std::string("call_0"));
 }
 
 TEST(bedrock_parse_usage_total_tokens_computed) {

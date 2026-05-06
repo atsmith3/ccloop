@@ -29,6 +29,7 @@ protected:
     static std::string build_tool_params_json(const std::vector<ToolParam>& params);
     static ToolArgs     json_obj_to_args(const JsonObject& obj);
     static LlmResponse  make_http_error(const HttpResult& result);
+    static std::string  make_fallback_call_id(int index) { return "call_" + std::to_string(index); }
 
 private:
     static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);

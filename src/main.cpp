@@ -71,6 +71,8 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--help" || arg == "-h") {
             print_help();
             return 0;
+        } else {
+            std::cerr << "warning: unknown option '" << arg << "' (ignored)\n";
         }
     }
 

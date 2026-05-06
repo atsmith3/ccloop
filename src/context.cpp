@@ -2,6 +2,8 @@
 #include "json.h"
 #include <sstream>
 
+static constexpr size_t kBytesPerToken = 4;
+
 ContextManager::ContextManager(size_t token_limit, size_t keep_recent)
     : token_limit_(token_limit), keep_recent_(keep_recent) {}
 
@@ -72,7 +74,7 @@ bool ContextManager::needs_compaction() const {
 }
 
 size_t ContextManager::estimate_tokens(const std::string& text) const {
-    return (text.size() + 3) / 4;  // ceiling division
+    return (text.size() + kBytesPerToken - 1) / kBytesPerToken;
 }
 
 size_t ContextManager::index_of_first_non_system() const {

@@ -99,7 +99,7 @@ LlmResponse BedrockConnector::parse_response_json(const std::string& body) {
                             auto input_opt = tool_use_opt->get("input");
 
                             call.id   = id_opt.has_value()   ? id_opt->as_string()
-                                                             : "bedrock_" + std::to_string(tc_idx);
+                                                             : make_fallback_call_id(tc_idx);
                             call.name = name_opt.has_value() ? name_opt->as_string() : "";
                             if (input_opt.has_value() && input_opt->is_object()) {
                                 call.args = json_obj_to_args(input_opt->as_object());
@@ -156,7 +156,7 @@ LlmResponse BedrockConnector::complete(const ContextManager& ctx,
     HttpResult result = http_post(url, body, headers);
     curl_slist_free_all(headers);
 
-    if (result.status != 200) {
+    if (result.status < 200 || result.status >= 300) {
         return make_http_error(result);
     }
 
