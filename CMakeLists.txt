@@ -43,6 +43,9 @@ target_link_libraries(ccl PRIVATE CURL::libcurl Threads::Threads)
 target_compile_options(ccl PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 target_link_options(ccl PRIVATE $<$<CONFIG:Release>:-s>)
 
+include(GNUInstallDirs)
+install(TARGETS ccl RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 # Always-run target: regenerates version.h before every build
 add_custom_target(ccl_version
     COMMAND ${CMAKE_COMMAND}

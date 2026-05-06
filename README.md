@@ -6,9 +6,9 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 
 - **Agentic loop:** Agent reads code, formulates plans, executes with approval
 - **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
-- **Tool-use:** Read files, search code, write files atomically, run shell commands
+- **Tool-use:** Read files, search code, write/edit files atomically, run shell commands, manage directories, find symbols, spawn sub-agents, ask the user questions
 - **MCP tools:** Connect to any MCP server over SSE/HTTP — tools appear alongside built-in tools
-- **Multi-connector:** OpenAI JSON and AWS Bedrock — selected via one config line
+- **Multi-connector:** OpenAI-compatible JSON and AWS Bedrock — selected via one config line
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
 - **Supply-chain safe:** Custom minimal TOML/JSON parsers, custom test harness, all from stdlib
 
@@ -70,6 +70,24 @@ cmake -B build && cmake --build build
 ./build/ccl        # run the CLI
 ```
 
+## Install
+
+After building, install to a prefix:
+
+```bash
+# Per-user (no sudo required)
+cmake --install build --prefix ~/.local
+
+# System-wide
+sudo cmake --install build --prefix /usr/local
+```
+
+The binary lands at `<prefix>/bin/ccl`. `DESTDIR` staging for `.deb`/`.rpm` packaging is supported:
+
+```bash
+DESTDIR=/tmp/staging cmake --install build --prefix /usr
+```
+
 ## Configure
 
 Copy the config template:
@@ -81,11 +99,13 @@ Edit `ccl.toml`:
 ```toml
 endpoint    = "http://localhost:4000/v1"
 api_key     = "sk-..."
-model       = "qwen3-235b"
+model       = "gpt-4o"
 token_limit = 8000
 
-connector = "openai-qwen"   # openai-qwen | openai-json | bedrock
+connector = "openai-json"   # openai-json | bedrock
 ```
+
+Any OpenAI-compatible endpoint (local models, Qwen, etc.) works with `connector = "openai-json"`.
 
 **AWS Bedrock:**
 ```toml
@@ -149,6 +169,8 @@ ccl --model qwen3-235b           # override model
 ccl --endpoint http://localhost:4000/v1
 ccl --config /path/to/config.toml
 ccl --debug                      # log raw LLM responses to stderr
+ccl --version                    # print version and build info
+ccl --help                       # show usage
 ```
 
 ### Non-interactive / Subagent Mode
@@ -173,6 +195,8 @@ ccl -p "add input validation to the login endpoint" -m act -y
 | `-p`/`--prompt <text>` | Run one turn non-interactively then exit. In plan mode (default), auto-transitions to act and exits after act completes. |
 | `-y`/`--yolo` | Auto-approve all tool calls — no approval prompts. |
 | `-m`/`--mode plan\|act` | Start in the specified mode (`-m` is a short alias for `--mode`). |
+| `-v`/`--version` | Print version and build info, then exit. |
+| `-h`/`--help` | Show usage, then exit. |
 
 ### Interactive Session Example
 
@@ -227,16 +251,15 @@ tokens: 1203/8000
 └────────────┬──────────────────────────┬──────────────┘
              │                          │
 ┌────────────▼────────────┐  ┌──────────▼─────────────┐
-│        LlmClient        │  │      ToolRegistry       │
-│   (connector facade)    │  │  local tools            │
-└────────────┬────────────┘  │  + MCP tools (dynamic) │
-             │               └──────────┬──────────────┘
-┌────────────▼────────────┐             │
-│   Connector (factory)   │  ┌──────────▼──────────────┐
-├────────────┬────────────┤  │      McpClient(s)       │
-│ OpenAI     │ Bedrock    │  │  JSON-RPC · SSE/HTTP    │
-│ JSON tc    │ SigV4      │  └─────────────────────────┘
-└────────────┴────────────┘
+│   Connector (factory)   │  │      ToolRegistry       │
+├────────────┬────────────┤  │  local tools            │
+│ OpenAI-JSON│ Bedrock    │  │  + MCP tools (dynamic) │
+│            │ SigV4      │  └──────────┬──────────────┘
+└────────────┴────────────┘             │
+                            ┌──────────▼──────────────┐
+                            │      McpClient(s)       │
+                            │  JSON-RPC · HTTP        │
+                            └─────────────────────────┘
 
 ─────────────────────────────────────────────────────
  json · config · context · types · ui
@@ -278,7 +301,7 @@ docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c 
 - TOML parser + env var override logic
 - Context manager (message history, token estimation, compaction)
 - Local tools (file I/O, atomicity, diffs, shell execution)
-- Connector request building + response parsing (Qwen, OpenAI, Bedrock)
+- Connector request building + response parsing (OpenAI-JSON, Bedrock)
 - MCP client JSON-RPC building and SSE/HTTP response parsing
 
 ## Project Structure
@@ -292,18 +315,19 @@ ccl/
 │   ├── ccl.toml.example         -- config template
 │   └── mcp.json.example         -- MCP servers config template
 ├── src/
-│   ├── main.cpp                 -- CLI parsing, signal handling
+│   ├── main.cpp                 -- CLI parsing, config loading, startup
+│   ├── signals.h/cpp            -- SIGINT handling (graceful interrupt)
 │   ├── types.h                  -- shared types (ToolDef, LlmResponse, etc.)
 │   ├── json.h/cpp               -- JSON parser (recursive descent)
 │   ├── config.h/cpp             -- TOML parser + config loading
 │   ├── context.h/cpp            -- message history + token compaction
-│   ├── tools.h/cpp              -- tool registry + all tool implementations
-│   ├── mcp_client.h/cpp         -- MCP client (JSON-RPC over SSE/HTTP)
+│   ├── tools.h/cpp              -- tool implementations
+│   ├── tool_registry.h/cpp      -- tool registration + lookup
+│   ├── mcp_client.h/cpp         -- MCP client (JSON-RPC over HTTP)
 │   ├── connector.h/cpp          -- Connector interface + factory
 │   ├── connector_base.h/cpp     -- shared HTTP/retry layer
-│   ├── connector_openai.h/cpp   -- OpenAI endpoint + JSON tool calling
+│   ├── connector_openai.h/cpp   -- OpenAI-compatible endpoint + JSON tool calling
 │   ├── connector_bedrock.h/cpp  -- AWS Bedrock Converse API + SigV4
-│   ├── llm_client.h/cpp         -- thin facade over Connector
 │   ├── agent.h/cpp              -- core agent loop (plan/act modes)
 │   └── ui.h/cpp                 -- terminal UI
 └── tests/
@@ -321,7 +345,7 @@ ccl/
 
 1. **Minimal dependencies:** Only libcurl at runtime. Build uses system cmake/compiler.
 2. **Supply-chain safety:** All parsing (JSON, TOML) written from scratch. Custom test harness — no Boost, Google Test, or Catch2.
-3. **Explicit layers:** `UI → Agent → LlmClient → Connector (Qwen/OpenAI/Bedrock) + ToolRegistry → Utilities (json, config, context)`
+3. **Explicit layers:** `UI → Agent → Connector (OpenAI-JSON/Bedrock) + ToolRegistry → Utilities (json, config, context)`
 4. **Terminal-friendly:** Pure text I/O. No fancy UI framework. Natural scrolling terminal. ASCII only.
 5. **Testability:** All core components unit-tested. Static helper methods on connectors make request/response logic testable without network access.
 
