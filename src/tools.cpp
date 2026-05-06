@@ -1,4 +1,5 @@
 #include "tools.h"
+#include "signals.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -576,10 +577,34 @@ ToolResult tool_run_shell(const ToolArgs& args) {
     std::vector<char> buf(4096);
     auto start_time = std::chrono::steady_clock::now();
     int status = 0;
-    bool timed_out = false;
-    bool exited = false;
+    bool timed_out   = false;
+    bool interrupted = false;
+    bool exited      = false;
 
     while (!exited) {
+        // Honour Ctrl+C: kill child process group and stop waiting
+        if (should_interrupt.load()) {
+            interrupted = true;
+            kill(-pid, SIGTERM);
+            for (int i = 0; i < 5; ++i) {
+                struct timeval tv { 0, 100000 };  // 100 ms
+                select(0, nullptr, nullptr, nullptr, &tv);
+                if (waitpid(pid, &status, WNOHANG) == pid) { exited = true; break; }
+            }
+            if (!exited) {
+                kill(-pid, SIGKILL);
+                waitpid(pid, &status, 0);
+            }
+            // Drain any buffered output before closing the pipe
+            {
+                ssize_t bytes;
+                while ((bytes = read(pipefd[0], buf.data(), buf.size())) > 0) {
+                    output.write(buf.data(), bytes);
+                }
+            }
+            break;
+        }
+
         auto elapsed = std::chrono::steady_clock::now() - start_time;
         if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= timeout_sec) {
             timed_out = true;
@@ -634,6 +659,10 @@ ToolResult tool_run_shell(const ToolArgs& args) {
             msg += "\n[output before timeout]\n" + captured;
         }
         return ToolResult::fail(msg);
+    }
+
+    if (interrupted) {
+        return ToolResult::fail("interrupted");
     }
 
     if (!exited) {
