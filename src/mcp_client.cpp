@@ -461,7 +461,7 @@ public:
         // Wake the reader thread's select() so it can exit promptly
         if (cancel_pipe_[1] != -1) {
             char b = 1;
-            (void)write(cancel_pipe_[1], &b, 1);
+            ssize_t wr = write(cancel_pipe_[1], &b, 1); (void)wr;
         }
         if (reader_.joinable()) reader_.join();
 
