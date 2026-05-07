@@ -146,9 +146,39 @@ static void load_mcp_config(const std::string& path, Config& cfg) {
         McpServerConfig srv;
         srv.name = name;
 
-        auto url_v = server_val->get("url");
-        if (!url_v || !url_v->is_string()) continue;  // url is required
-        srv.url = url_v->as_string();
+        // Parse transport (default: http)
+        std::string transport_str = "http";
+        auto transport_v = server_val->get("transport");
+        if (transport_v && transport_v->is_string()) transport_str = transport_v->as_string();
+
+        if (transport_str == "stdio") {
+            srv.transport = McpTransportType::Stdio;
+            auto cmd_v = server_val->get("command");
+            if (!cmd_v || !cmd_v->is_string()) {
+                std::cerr << "[mcp] server '" << name << "': transport=stdio requires 'command' (skipping)\n";
+                continue;
+            }
+            srv.command = cmd_v->as_string();
+        } else if (transport_str == "sse") {
+            srv.transport = McpTransportType::LegacySse;
+            auto url_v = server_val->get("url");
+            if (!url_v || !url_v->is_string()) {
+                std::cerr << "[mcp] server '" << name << "': transport=sse requires 'url' (skipping)\n";
+                continue;
+            }
+            srv.url = url_v->as_string();
+        } else if (transport_str == "http" || transport_str == "streamable-http") {
+            srv.transport = McpTransportType::Http;
+            auto url_v = server_val->get("url");
+            if (!url_v || !url_v->is_string()) {
+                std::cerr << "[mcp] server '" << name << "': transport=http requires 'url' (skipping)\n";
+                continue;
+            }
+            srv.url = url_v->as_string();
+        } else {
+            std::cerr << "[mcp] server '" << name << "': unknown transport '" << transport_str << "' (skipping)\n";
+            continue;
+        }
 
         auto key_v = server_val->get("apiKey");
         if (key_v && key_v->is_string()) srv.api_key = key_v->as_string();

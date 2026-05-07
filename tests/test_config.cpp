@@ -434,6 +434,87 @@ TEST(config_mcp_env_var_sets_mcp_config) {
     unsetenv("CCL_MCP_CONFIG");
 }
 
+TEST(config_mcp_http_transport_default) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "s": {"url": "http://localhost:3001"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK(cfg.mcp_servers[0].transport == McpTransportType::Http);
+    CHECK_EQ(cfg.mcp_servers[0].url, std::string("http://localhost:3001"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_stdio_transport_parsed) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "fs": {
+                "transport": "stdio",
+                "command": "npx @modelcontextprotocol/server-filesystem /tmp",
+                "writeTools": ["write_file"]
+            }
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK(cfg.mcp_servers[0].transport == McpTransportType::Stdio);
+    CHECK_EQ(cfg.mcp_servers[0].command, std::string("npx @modelcontextprotocol/server-filesystem /tmp"));
+    CHECK(cfg.mcp_servers[0].url.empty());
+    CHECK(cfg.mcp_servers[0].write_tools.count("write_file") > 0);
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_sse_transport_parsed) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "legacy": {"transport": "sse", "url": "http://localhost:9000/sse"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK(cfg.mcp_servers[0].transport == McpTransportType::LegacySse);
+    CHECK_EQ(cfg.mcp_servers[0].url, std::string("http://localhost:9000/sse"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_stdio_without_command_skipped) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "bad": {"transport": "stdio"},
+            "good": {"url": "http://localhost:3001"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK_EQ(cfg.mcp_servers[0].name, std::string("good"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
+TEST(config_mcp_unknown_transport_skipped) {
+    std::string json_path = create_temp_json(R"({
+        "mcpServers": {
+            "bad": {"transport": "websocket", "url": "ws://localhost:9000"},
+            "good": {"url": "http://localhost:3001"}
+        }
+    })");
+    std::string toml_path = create_temp_toml("mcp_config = \"" + json_path + "\"\n");
+    Config cfg = Config::load(toml_path);
+    CHECK_EQ(cfg.mcp_servers.size(), size_t(1));
+    CHECK_EQ(cfg.mcp_servers[0].name, std::string("good"));
+    fs::remove(toml_path);
+    fs::remove(json_path);
+}
+
 // ============================================================================
 // compaction_keep_recent tests
 // ============================================================================

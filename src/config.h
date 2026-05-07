@@ -13,10 +13,14 @@ struct Permissions {
     bool auto_approve_shell  = false;  // run_shell
 };
 
+enum class McpTransportType { Http, Stdio, LegacySse };
+
 struct McpServerConfig {
-    std::string name;
-    std::string url;                                    // SSE/HTTP endpoint
-    std::string api_key;                                // optional Bearer auth
+    std::string      name;
+    McpTransportType transport = McpTransportType::Http;  // transport type
+    std::string  url;                                   // HTTP/SSE endpoint (Http, LegacySse)
+    std::string  command;                               // shell command to launch server (Stdio)
+    std::string  api_key;                               // optional Bearer auth (Http transports)
     std::unordered_set<std::string> write_tools;        // tools that require write approval
 };
 

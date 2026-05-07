@@ -3,15 +3,23 @@
 #include <optional>
 #include <string>
 #include <vector>
-#include <curl/curl.h>
 #include "config.h"
 #include "types.h"
 #include "json.h"
 
+// Abstract transport — concrete implementations live in mcp_client.cpp
+class McpTransport {
+public:
+    virtual ~McpTransport() = default;
+    virtual std::optional<JsonValue> send_rpc(int id, const std::string& method,
+                                              const JsonValue& params) = 0;
+    virtual void send_notification(const std::string& method) = 0;
+};
+
 class McpClient {
 public:
     McpClient(const McpServerConfig& server, const Config& cfg);
-    ~McpClient();
+    ~McpClient() = default;
 
     // MCP lifecycle — call initialize() before list_tools() or call_tool()
     bool                 initialize();
@@ -30,14 +38,8 @@ private:
                                       const JsonValue& params = JsonValue{});
     void send_notification(const std::string& method);
 
-    curl_slist* build_headers() const;
-
-    static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
-    static size_t header_callback(char* ptr, size_t size, size_t nmemb, void* userdata);
-
-    McpServerConfig server_;
-    Config          cfg_;
-    CURL*           curl_ = nullptr;
-    int             next_id_ = 1;
-    std::string     session_id_;
+    McpServerConfig               server_;
+    Config                        cfg_;
+    std::unique_ptr<McpTransport> transport_;
+    int                           next_id_ = 1;
 };

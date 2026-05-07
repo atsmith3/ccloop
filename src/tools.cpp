@@ -68,7 +68,8 @@ static const std::set<std::string> kSkipDirs = {
     "dist", "build", ".tox", ".eggs", "site-packages"
 };
 
-static constexpr size_t kMaxRegexLineBytes = 2048;
+static constexpr size_t kMaxRegexLineBytes    = 2048;
+static constexpr int    kSubagentMinTimeoutSec = 600;  // 10 min floor for slow/single-residency SLMs
 
 // ============================================================================
 // Argument helpers
@@ -729,13 +730,10 @@ ToolResult tool_spawn_agent(const ToolArgs& args, const std::string& config_path
         shell_args["cwd"] = cwd_it->second;
     }
 
-    auto timeout_it = args.find("timeout_sec");
-    if (timeout_it != args.end()) {
-        shell_args["timeout_sec"] = timeout_it->second;
-    } else {
-        JsonValue v; v.data = static_cast<double>(600);
-        shell_args["timeout_sec"] = v;
-    }
+    auto provided_timeout = arg_int(args, "timeout_sec");
+    int timeout_val = (provided_timeout && *provided_timeout > kSubagentMinTimeoutSec)
+                      ? *provided_timeout : kSubagentMinTimeoutSec;
+    { JsonValue tv; tv.data = static_cast<double>(timeout_val); shell_args["timeout_sec"] = tv; }
 
     return tool_run_shell(shell_args);
 }
