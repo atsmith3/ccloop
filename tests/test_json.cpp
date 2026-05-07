@@ -263,3 +263,36 @@ TEST(json_serialize_float_roundtrip) {
     if (diff < 0) diff = -diff;
     CHECK(diff < 1e-14);
 }
+
+// ============================================================================
+// operator[] overloads
+// ============================================================================
+
+TEST(json_operator_brackets_string_key) {
+    JsonValue v = parse_json(R"({"name": "Alice", "age": 30})");
+    auto name = v["name"];
+    CHECK(name.has_value());
+    CHECK_EQ(name->as_string(), std::string("Alice"));
+    auto missing = v["missing"];
+    CHECK(!missing.has_value());
+}
+
+TEST(json_operator_brackets_index) {
+    JsonValue v = parse_json("[10, 20, 30]");
+    auto elem = v[size_t(1)];
+    CHECK(elem.has_value());
+    CHECK_EQ(elem->as_number(), 20.0);
+    auto oob = v[size_t(99)];
+    CHECK(!oob.has_value());
+}
+
+// ============================================================================
+// Additional escape sequences
+// ============================================================================
+
+TEST(json_parse_escape_backspace_formfeed_carriage) {
+    JsonValue v = parse_json("\"a\\bb\\fc\\rd\"");
+    CHECK(v.is_string());
+    std::string s = v.as_string();
+    CHECK_EQ(s, std::string("a\bb\fc\rd"));
+}

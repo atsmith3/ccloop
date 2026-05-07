@@ -478,3 +478,19 @@ TEST(mcp_parse_call_result_null_content_field) {
     CHECK(r.success);
     CHECK(r.content.empty());
 }
+
+TEST(mcp_parse_tools_list_schema_without_properties) {
+    // inputSchema present but no "properties" field → the guard
+    // `if (props_v && props_v->is_object())` short-circuits → empty params list.
+    JsonValue result = parse_json(R"({
+        "tools": [{
+            "name": "no_props",
+            "description": "a tool without a properties field",
+            "inputSchema": {"type": "object"}
+        }]
+    })");
+    auto defs = McpClient::parse_tools_list(result);
+    CHECK_EQ(defs.size(), size_t(1));
+    CHECK_EQ(defs[0].name, std::string("no_props"));
+    CHECK(defs[0].params.empty());
+}
