@@ -1,4 +1,5 @@
 #include "mcp_client.h"
+#include "signals.h"
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
@@ -156,6 +157,8 @@ public:
         curl_easy_setopt(curl_, CURLOPT_HEADERFUNCTION,  header_callback);
         curl_easy_setopt(curl_, CURLOPT_HEADERDATA,      static_cast<void*>(&captured_session_id));
         curl_easy_setopt(curl_, CURLOPT_TIMEOUT,         static_cast<long>(cfg_.timeout_sec));
+        curl_easy_setopt(curl_, CURLOPT_NOPROGRESS,      0L);
+        curl_easy_setopt(curl_, CURLOPT_XFERINFOFUNCTION, interrupt_cb);
 
         CURLcode res = curl_easy_perform(curl_);
         curl_slist_free_all(headers);
@@ -225,6 +228,10 @@ public:
     }
 
 private:
+    static int interrupt_cb(void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+        return should_interrupt.load() ? 1 : 0;
+    }
+
     static size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
         size_t realsize = size * nmemb;
         static_cast<std::string*>(userdata)->append(ptr, realsize);
@@ -277,7 +284,11 @@ public:
     StdioTransport(const McpServerConfig& server, const Config& cfg)
         : server_(server), cfg_(cfg) {
         int pipefd_in[2], pipefd_out[2];
-        if (pipe(pipefd_in) != 0 || pipe(pipefd_out) != 0) return;
+        if (pipe(pipefd_in) != 0) return;
+        if (pipe(pipefd_out) != 0) {
+            close(pipefd_in[0]); close(pipefd_in[1]);
+            return;
+        }
 
         pid_t pid = fork();
         if (pid < 0) {
@@ -303,7 +314,6 @@ public:
         child_pid_ = pid;
         stdin_fd_  = pipefd_in[1];
         stdout_fd_ = pipefd_out[0];
-        signal(SIGPIPE, SIG_IGN);  // prevent SIGPIPE kill if subprocess closes its stdin
     }
 
     ~StdioTransport() {
@@ -392,6 +402,8 @@ private:
                 if (!line.empty() && line.back() == '\r') line.pop_back();
                 return line;
             }
+
+            if (should_interrupt.load()) return "";
 
             auto now = std::chrono::steady_clock::now();
             if (now >= deadline) return "";

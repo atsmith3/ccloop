@@ -109,6 +109,7 @@ int main(int argc, char* argv[]) {
     sigemptyset(&sa_term.sa_mask);
     sa_term.sa_flags = SA_RESTART;
     sigaction(SIGTERM, &sa_term, nullptr);
+    signal(SIGPIPE, SIG_IGN);  // writes to closed pipes return EPIPE instead of killing process
 
     if (loaded_config.api_key.empty()) {
         std::cerr << "[warning] No API key set — requests will likely fail (set CCL_API_KEY or api_key in config)\n";
