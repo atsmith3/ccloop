@@ -292,6 +292,7 @@ public:
             dup2(pipefd_out[1], STDOUT_FILENO);
             close(pipefd_in[0]);  close(pipefd_in[1]);
             close(pipefd_out[0]); close(pipefd_out[1]);
+            setpgid(0, 0);  // own process group so destructor can kill the whole subtree
             execl("/bin/sh", "sh", "-c", server.command.c_str(), nullptr);
             _exit(127);
         }
@@ -311,11 +312,11 @@ public:
         if (child_pid_ != -1) {
             int status;
             if (waitpid(child_pid_, &status, WNOHANG) == 0) {
-                kill(child_pid_, SIGTERM);
+                kill(-child_pid_, SIGTERM);  // kill entire process group
                 struct timeval tv { 0, 500000 };
                 select(0, nullptr, nullptr, nullptr, &tv);
                 if (waitpid(child_pid_, &status, WNOHANG) == 0) {
-                    kill(child_pid_, SIGKILL);
+                    kill(-child_pid_, SIGKILL);
                     waitpid(child_pid_, &status, 0);
                 }
             }

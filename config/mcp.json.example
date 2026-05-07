@@ -1,12 +1,19 @@
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:3001/mcp",
+      "transport": "stdio",
+      "command": "npx -y @modelcontextprotocol/server-filesystem /home/user/docs",
       "writeTools": ["write_file", "create_directory", "move_file", "delete_file"]
     },
-    "github": {
-      "url": "http://localhost:3002/mcp",
-      "apiKey": "ghp_your_token_here"
+    "my-http-server": {
+      "transport": "http",
+      "url": "http://localhost:3001/mcp",
+      "apiKey": "optional-bearer-token",
+      "writeTools": ["write_file"]
+    },
+    "legacy-sse-server": {
+      "transport": "sse",
+      "url": "http://localhost:3002/sse"
     }
   }
 }
