@@ -445,3 +445,36 @@ TEST(mcp_sse_parse_message_event_roundtrip) {
     CHECK(id_v->is_number());
     CHECK((int)id_v->as_number() == 1);
 }
+
+// ============================================================================
+// Coverage gap tests — real-world edge cases
+// ============================================================================
+
+TEST(mcp_parse_tools_list_type_array_defaults_to_string) {
+    // Real-world MCP servers (Anthropic SDK etc.) use "type": ["string", "null"]
+    // for optional parameters. is_string() returns false for arrays, so the parser
+    // should fall back to "string" rather than crash or skip the param.
+    JsonValue result = parse_json(R"({
+        "tools": [{
+            "name": "t",
+            "inputSchema": {
+                "properties": {
+                    "x": {"type": ["string", "null"], "description": "optional param"}
+                }
+            }
+        }]
+    })");
+    auto defs = McpClient::parse_tools_list(result);
+    CHECK_EQ(defs.size(), size_t(1));
+    CHECK_EQ(defs[0].params.size(), size_t(1));
+    CHECK_EQ(defs[0].params[0].type, std::string("string"));
+}
+
+TEST(mcp_parse_call_result_null_content_field) {
+    // {"content": null} differs from {} (missing key) and {"content": []} (empty array).
+    // content_v.has_value() is true but is_array() is false → output empty, success.
+    JsonValue result = parse_json(R"({"content": null})");
+    ToolResult r = McpClient::parse_call_result(result);
+    CHECK(r.success);
+    CHECK(r.content.empty());
+}

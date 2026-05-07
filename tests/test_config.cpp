@@ -568,6 +568,13 @@ TEST(config_load_ccl_config_env_priority) {
     fs::remove(env_path);
 }
 
+TEST(config_editor_field_parsed) {
+    std::string path = create_temp_toml("editor = \"vim\"\n");
+    Config cfg = Config::load(path);
+    CHECK_EQ(cfg.editor, std::string("vim"));
+    fs::remove(path);
+}
+
 TEST(config_expand_home_no_crash_when_home_unset) {
     // Save and unset HOME
     const char* saved_home = std::getenv("HOME");
