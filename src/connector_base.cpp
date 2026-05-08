@@ -128,6 +128,6 @@ LlmResponse ConnectorBase::make_http_error(const HttpResult& result) {
     LlmResponse response;
     response.is_error = true;
     response.content  = "HTTP " + std::to_string(result.status)
-                      + ": " + result.body.substr(0, 200);
+                      + ": " + result.body.substr(0, 500);
     return response;
 }

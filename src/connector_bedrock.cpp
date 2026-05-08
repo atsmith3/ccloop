@@ -5,6 +5,9 @@
 BedrockConnector::BedrockConnector(const Config& cfg)
     : ConnectorBase(cfg)
 {
+    if (cfg_.aws_access_key.empty() || cfg_.aws_secret_key.empty()) {
+        throw std::runtime_error("Bedrock connector requires aws_access_key and aws_secret_key");
+    }
     // Configure SigV4 signing on the persistent CURL handle.
     // libcurl handles all signing, date headers, and payload hash transparently.
     if (curl_) {

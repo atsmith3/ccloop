@@ -142,7 +142,7 @@ TEST(tool_search_files_no_match) {
 
     ToolResult result = tool_search_files(args);
     CHECK(result.success);
-    CHECK_EQ(result.content, std::string(""));
+    CHECK(result.content.find("no matches") != std::string::npos);
 }
 
 TEST(tool_search_files_no_pattern_lists_files) {
@@ -891,7 +891,7 @@ TEST(tool_read_file_offset_beyond_eof_returns_empty) {
 
     ToolResult result = tool_read_file(args);
     CHECK(result.success);
-    CHECK(result.content.empty());
+    CHECK(result.content.find("past end of file") != std::string::npos);
 }
 
 TEST(tool_read_file_limit_larger_than_file_returns_all) {

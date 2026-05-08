@@ -93,3 +93,14 @@ target_include_directories(ccl_test PRIVATE src tests)
 target_link_libraries(ccl_test PRIVATE CURL::libcurl Threads::Threads)
 target_compile_options(ccl_test PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 add_test(NAME ccl_tests COMMAND ccl_test)
+
+find_program(VALGRIND valgrind)
+if(VALGRIND)
+    add_test(NAME ccl_tests_valgrind
+        COMMAND ${VALGRIND}
+            --leak-check=full
+            --error-exitcode=1
+            --track-origins=yes
+            $<TARGET_FILE:ccl_test>
+    )
+endif()
