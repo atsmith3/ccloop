@@ -321,6 +321,17 @@ TEST(context_compact_to_summary_keep_exceeds_history) {
     CHECK_EQ(ctx.message_count(), size_t(6));
 }
 
+TEST(context_compact_to_summary_keep_recent_zero) {
+    // keep_recent=0: all non-system messages dropped; only system + summary remain.
+    ContextManager ctx(8000, 0);
+    ctx.push_system("system prompt");
+    ctx.push_user("msg1");
+    ctx.push_assistant("msg2");
+    ctx.compact_to_summary("condensed");
+    // expect: 1 system + 1 summary = 2
+    CHECK_EQ(ctx.message_count(), size_t(2));
+}
+
 TEST(context_compact_to_summary_summary_content_preserved) {
     ContextManager ctx(8000, 2);
     ctx.push_system("system");

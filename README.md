@@ -7,7 +7,7 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 - **Agentic loop:** Agent reads code, formulates plans, executes with approval
 - **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
 - **Tool-use:** Read files, search code, write/edit files atomically, run shell commands, manage directories, find symbols, spawn sub-agents, ask the user questions
-- **MCP tools:** Connect to any MCP server over SSE/HTTP — tools appear alongside built-in tools
+- **MCP tools:** Connect to any MCP server over stdio, HTTP, or legacy SSE — tools appear alongside built-in tools
 - **Multi-connector:** OpenAI-compatible JSON and AWS Bedrock — selected via one config line
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
 - **Supply-chain safe:** Custom minimal TOML/JSON parsers, custom test harness, all from stdlib
@@ -128,28 +128,34 @@ Create `mcp.json` (see `config/mcp.json.example`):
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:3001/mcp",
+      "transport": "stdio",
+      "command": "npx -y @modelcontextprotocol/server-filesystem /home/user/docs",
       "writeTools": ["write_file", "create_directory"]
     },
-    "github": {
-      "url": "http://localhost:3002/mcp",
-      "apiKey": "ghp_..."
+    "my-http-server": {
+      "transport": "http",
+      "url": "http://localhost:3001/mcp",
+      "apiKey": "optional-token"
+    },
+    "legacy-sse-server": {
+      "transport": "sse",
+      "url": "http://localhost:3002/sse"
     }
   }
 }
 ```
 
-- `url` — MCP server's streamable HTTP endpoint (MCP spec 2024-11-05+)
-- `apiKey` — optional Bearer token
-- `writeTools` — tool names that require `write` approval (all others default to `read`)
+| Field | Description |
+|-------|-------------|
+| `transport` | `"http"` (default), `"stdio"`, or `"sse"` |
+| `url` | HTTP/SSE endpoint — required for `http` and `sse` |
+| `command` | Shell command to launch server — required for `stdio` |
+| `apiKey` | Optional Bearer token (`http` and `sse` transports) |
+| `writeTools` | Tool names requiring `write` approval (all others default to `read`) |
 
 MCP tools are discovered at startup via `tools/list` and registered alongside built-in tools. They show as `(mcp)` in the tool call display.
 
-**Server requirements:** ccl uses the [Streamable HTTP transport](https://spec.modelcontextprotocol.io/specification/2024-11-05/basic/transports/#streamable-http) only. The older SSE transport is not supported. For the Python MCP SDK (`mcp >= 1.0`):
-```python
-mcp.run(transport="streamable-http", host="127.0.0.1", port=8300)
-# url in mcp.json: "http://127.0.0.1:8300/mcp"
-```
+ccl supports all three MCP transports: **streamable-http** (spec 2024-11-05+, default), **stdio** (subprocess with line-delimited JSON-RPC — standard for Claude Desktop plugins and `npx`-based servers), and **legacy-sse** (pre-2024-11-05 GET /sse + POST).
 
 Override with environment variables:
 ```bash
@@ -257,9 +263,10 @@ tokens: 1203/8000
 │            │ SigV4      │  └──────────┬──────────────┘
 └────────────┴────────────┘             │
                             ┌──────────▼──────────────┐
-                            │      McpClient(s)       │
-                            │  JSON-RPC · HTTP        │
-                            └─────────────────────────┘
+                            │      McpClient(s)        │
+                            │  JSON-RPC over           │
+                            │  http / stdio / sse      │
+                            └──────────────────────────┘
 
 ─────────────────────────────────────────────────────
  json · config · context · types · ui
@@ -302,7 +309,7 @@ docker run --rm -u $(id -u):$(id -g) -v $PWD:/workspace:z ccloop:latest bash -c 
 - Context manager (message history, token estimation, compaction)
 - Local tools (file I/O, atomicity, diffs, shell execution)
 - Connector request building + response parsing (OpenAI-JSON, Bedrock)
-- MCP client JSON-RPC building and SSE/HTTP response parsing
+- MCP client: JSON-RPC building, response parsing, STDIO subprocess I/O, legacy-SSE event dispatch
 
 ## Project Structure
 
@@ -323,7 +330,7 @@ ccl/
 │   ├── context.h/cpp            -- message history + token compaction
 │   ├── tools.h/cpp              -- tool implementations
 │   ├── tool_registry.h/cpp      -- tool registration + lookup
-│   ├── mcp_client.h/cpp         -- MCP client (JSON-RPC over HTTP)
+│   ├── mcp_client.h/cpp         -- MCP client (JSON-RPC over http/stdio/sse)
 │   ├── connector.h/cpp          -- Connector interface + factory
 │   ├── connector_base.h/cpp     -- shared HTTP/retry layer
 │   ├── connector_openai.h/cpp   -- OpenAI-compatible endpoint + JSON tool calling

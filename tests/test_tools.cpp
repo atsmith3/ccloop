@@ -1192,6 +1192,23 @@ TEST(tool_run_shell_nonzero_exit_code_in_error) {
     CHECK(result.error.find("42") != std::string::npos);
 }
 
+TEST(tool_spawn_agent_missing_prompt_fails) {
+    ToolArgs args;  // no "prompt" key
+    ToolResult r = tool_spawn_agent(args);
+    CHECK(!r.success);
+    CHECK(r.error.find("prompt") != std::string::npos);
+}
+
+TEST(tool_run_shell_bad_cwd_fails) {
+    ToolArgs args;
+    args["command"] = JsonValue();
+    args["command"].data.emplace<std::string>("true");
+    args["cwd"] = JsonValue();
+    args["cwd"].data.emplace<std::string>("/nonexistent/path/xyz123abc");
+    ToolResult r = tool_run_shell(args);
+    CHECK(!r.success);  // child exits 126 on chdir failure
+}
+
 TEST(make_registry_agent_native_flags_set) {
     Config cfg = Config::defaults();
     int called = 0;
