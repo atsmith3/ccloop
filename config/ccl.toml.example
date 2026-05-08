@@ -1,8 +1,9 @@
 endpoint    = "http://localhost:4000/v1"
 api_key     = ""
-model       = "qwen3-235b"
+model       = "qwen3.6-27b"
 timeout_sec = 30
-token_limit            = 8000
+max_tokens  = 4096    # model response tokens (not the context window limit)
+token_limit = 8000    # context window
 compaction_keep_recent = 8    # messages preserved after compaction (default 8)
 
 # Connector type: openai-json (default) | bedrock
@@ -24,4 +25,3 @@ read   = true    # auto-approve: read_file, list_dir, search_files, file_info
 write  = true    # auto-approve: write_file, edit_file, create_dir                                                                                                                                                                                                       
 delete = false   # auto-approve: delete_file                                                                                                                                                                                                                             
 shell  = false   # auto-approve: run_shell
-

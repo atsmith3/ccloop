@@ -226,7 +226,7 @@ Config Config::load(const std::string& explicit_path) {
             parse_toml(config_path, cfg);
             cfg.config_path = fs::absolute(config_path).string();
         } catch (const std::exception& e) {
-            // Fail silently, use defaults
+            std::cerr << "warning: failed to parse config " << config_path << ": " << e.what() << "\n";
         }
     }
 

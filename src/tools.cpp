@@ -143,6 +143,9 @@ ToolResult tool_read_file(const ToolArgs& args) {
         ss << line << "\n";
         ++lines_written;
     }
+    if (lines_written == 0)
+        return ToolResult::ok("(offset " + std::to_string(start_line)
+                              + " is past end of file: " + *path + ")");
     return ToolResult::ok(ss.str());
 }
 
@@ -255,6 +258,9 @@ ToolResult tool_search_files(const ToolArgs& args) {
                 break;
             }
         }
+
+        if (!found_any)
+            return ToolResult::ok("(no matches for pattern '" + pattern_str + "' in " + *path + ")");
 
         if (truncated) {
             ss << "\n[... results truncated — use file_glob or a narrower path to refine]";
