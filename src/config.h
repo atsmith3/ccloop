@@ -65,4 +65,5 @@ struct Config {
     static Config defaults();
     static Config load(const std::string& explicit_path = "");
     static void   apply_env_overrides(Config& cfg);
+    void          reload_mcp_servers();
 };

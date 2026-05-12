@@ -72,7 +72,10 @@ std::string Agent::system_prompt() const {
                 "sequentially: wait for the response, then ask the next question.\n\n"
                 "Use print(message=...) to surface key findings mid-exploration. Keep output minimal.\n\n"
                 "Keep plans grounded in what you actually read — do not invent structure or APIs "
-                "that you have not confirmed exist. Do not write or modify any files.";
+                "that you have not confirmed exist. Do not write or modify any files.\n\n"
+                "## Style\n\n"
+                "No emojis. Use only ASCII characters in all output.\n"
+                "Document all code using Doxygen style (/** ... */ comments with @brief, @param, @return, etc.).";
         case AgentMode::Act:
             return
                 "You are an expert software engineer executing tasks precisely and methodically.\n\n"
@@ -98,6 +101,8 @@ std::string Agent::system_prompt() const {
                 "  not emit a step-complete acknowledgment as a standalone message\n"
                 "If edit_file returns \"old_str not found\", re-read the file, locate the correct\n"
                 "text, and retry. Never abandon a step due to this error.\n\n"
+                "After each step finishes — whether done directly or via sub-agent — call\n"
+                "complete_step(step=N) before proceeding. Never emit text between steps.\n\n"
                 "## Phase 3 — Signal completion\n\n"
                 "When all steps are done, respond with a text summary of what was accomplished.\n\n"
                 "For conversational questions that don't require plan execution, answer in text.\n\n"
@@ -113,8 +118,9 @@ std::string Agent::system_prompt() const {
                 "  spawn_agent(prompt='Edit src/foo.cpp: change function X to do Y. Read first, edit, verify.')\n"
                 "  spawn_agent(prompt='Edit src/bar.cpp: add function Z. Read first, write, verify.')\n"
                 "  spawn_agent(prompt='Run cmake --build build_local && ./build_local/ccl_test. Report pass/fail.')\n\n"
-                "The sub-agent returns a summary of what it did. Record that, mark the step done, "
-                "and move on. Do not re-read files the sub-agent already processed.\n\n"
+                "The sub-agent returns a summary of what it did. Call complete_step(step=N) to mark "
+                "it done, then immediately continue to the next step. Do not re-read files the "
+                "sub-agent already processed.\n\n"
                 "Only work directly (read_file, edit_file, write_file) for genuinely trivial "
                 "changes: a single targeted edit of < 5 lines where you already know exactly "
                 "what to change.\n\n"
@@ -126,7 +132,10 @@ std::string Agent::system_prompt() const {
                 "Output this marker to pause execution and ask the user for guidance. "
                 "Do not output it for recoverable errors — attempt fixes first.\n\n"
                 "When using ask_user mid-execution, ask ONE focused question per call. "
-                "Never bundle multiple questions into a single call.";
+                "Never bundle multiple questions into a single call.\n\n"
+                "## Style\n\n"
+                "No emojis. Use only ASCII characters in all output.\n"
+                "Document all code using Doxygen style (/** ... */ comments with @brief, @param, @return, etc.).";
     }
     return "";
 }
@@ -602,6 +611,16 @@ void Agent::build_slash_commands() {
             }
         }});
 
+    slash_commands_.push_back({"mcp", "list | reload — show MCP server status or reconnect all",
+        [this](const std::string& arg) {
+            if      (arg == "list")   cmd_mcp_list();
+            else if (arg == "reload") cmd_mcp_reload();
+            else {
+                std::cout << "Usage: /mcp list | /mcp reload\n";
+                std::cout.flush();
+            }
+        }});
+
     slash_commands_.push_back({"quit", "exit",
         [](const std::string&) { should_exit = true; }});
 
@@ -646,5 +665,38 @@ void Agent::rebuild_registry() {
         {"print",        [this](const ToolArgs& a) { return handle_print(a); }},
         {"ask_user",     [this](const ToolArgs& a) { return handle_ask_user(a); }},
     };
-    registry_ = make_registry(mode_, config_, non_interactive_, handlers);
+    mcp_status_.clear();
+    registry_ = make_registry(mode_, config_, non_interactive_, handlers, &mcp_status_);
+}
+
+void Agent::cmd_mcp_list() {
+    if (config_.mcp_config.empty()) {
+        std::cout << "No MCP config file configured.\n";
+    } else {
+        std::cout << "MCP config: " << config_.mcp_config << "\n";
+    }
+    if (mcp_status_.empty()) {
+        std::cout << "  (no MCP servers configured)\n";
+    } else {
+        for (const auto& s : mcp_status_) {
+            const char* tr = (s.transport == McpTransportType::Stdio)     ? "stdio"
+                           : (s.transport == McpTransportType::LegacySse) ? "sse" : "http";
+            std::string endpoint = s.url.empty() ? s.command : s.url;
+            std::string status   = s.connected
+                ? "connected (" + std::to_string(s.tool_count) + " tools)"
+                : "failed";
+            std::cout << "  " << s.name << " [" << tr << "] " << endpoint
+                      << " \xe2\x80\x94 " << status << "\n";
+        }
+    }
+    std::cout.flush();
+}
+
+void Agent::cmd_mcp_reload() {
+    std::cout << "Reloading MCP connections...\n";
+    std::cout.flush();
+    config_.reload_mcp_servers();
+    rebuild_registry();
+    context_.replace_system(system_prompt());
+    cmd_mcp_list();
 }

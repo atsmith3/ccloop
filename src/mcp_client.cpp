@@ -713,6 +713,7 @@ McpClient::McpClient(const McpServerConfig& server, const Config& cfg)
 
 std::optional<JsonValue> McpClient::send_rpc(const std::string& method, const JsonValue& params) {
     if (!transport_) return std::nullopt;
+    std::lock_guard<std::mutex> lock(mutex_);
     return transport_->send_rpc(next_id_++, method, params);
 }
 

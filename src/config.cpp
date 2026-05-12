@@ -245,6 +245,14 @@ Config Config::load(const std::string& explicit_path) {
     return cfg;
 }
 
+void Config::reload_mcp_servers() {
+    mcp_servers.clear();
+    if (mcp_config.empty()) return;
+    std::string path = expand_home(mcp_config);
+    if (!fs::exists(path)) return;
+    try { load_mcp_config(path, *this); } catch (...) {}
+}
+
 void Config::apply_env_overrides(Config& cfg) {
     const char* api_key = std::getenv("CCL_API_KEY");
     if (api_key) cfg.api_key = api_key;

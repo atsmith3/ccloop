@@ -25,6 +25,15 @@ struct Tool {
     bool        agent_native = false;  // true → run in pre-pass (sequential), not thread pool
 };
 
+struct McpServerStatus {
+    std::string      name;
+    McpTransportType transport;
+    std::string      url;
+    std::string      command;
+    bool             connected  = false;
+    int              tool_count = 0;
+};
+
 class ToolRegistry {
 public:
     void register_tool(Tool tool);
@@ -41,7 +50,8 @@ private:
 // are wired up without hardcoding names in agent.cpp.
 ToolRegistry make_registry(AgentMode mode, const Config& cfg,
                             bool non_interactive = false,
-                            const AgentHandlers& handlers = {});
+                            const AgentHandlers& handlers = {},
+                            std::vector<McpServerStatus>* status_out = nullptr);
 
 // Read-only tools (registered in all modes)
 ToolResult tool_read_file    (const ToolArgs& args);
