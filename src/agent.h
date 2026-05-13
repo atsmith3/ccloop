@@ -52,6 +52,7 @@ private:
     bool restore_context(const std::string& path);
     bool handle_slash_command(std::string_view input);
     void transition_to(AgentMode next);
+    void reset_context();
     void rebuild_registry();
     void build_slash_commands();
     void cmd_mcp_list();

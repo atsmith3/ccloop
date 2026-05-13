@@ -30,6 +30,7 @@ static void print_help() {
               << "  --mode|-m plan|act       Start in specified mode\n"
               << "  --prompt|-p <text>       Run one turn non-interactively then exit\n"
               << "  --yolo|-y                Auto-approve all tool calls\n"
+              << "  --silent|-s              Suppress all output except print and completion\n"
               << "  --debug                  Log raw LLM responses to stderr\n"
               << "  --version, -v            Print version and build info\n"
               << "  --help, -h               Show this help\n";
@@ -42,6 +43,7 @@ int main(int argc, char* argv[]) {
     std::string cli_prompt;
     bool cli_debug   = false;
     bool cli_yolo    = false;
+    bool cli_silent  = false;
     AgentMode initial_mode = AgentMode::Plan;
 
     // Parse command-line arguments
@@ -63,6 +65,8 @@ int main(int argc, char* argv[]) {
             cli_prompt = argv[++i];
         } else if (arg == "--yolo" || arg == "-y") {
             cli_yolo = true;
+        } else if (arg == "--silent" || arg == "-s") {
+            cli_silent = true;
         } else if (arg == "--debug") {
             cli_debug = true;
         } else if (arg == "--version" || arg == "-v") {
@@ -90,6 +94,9 @@ int main(int argc, char* argv[]) {
     if (cli_debug) {
         loaded_config.debug = true;
     }
+    if (cli_silent) {
+        loaded_config.silent = true;
+    }
     if (cli_yolo) {
         loaded_config.permissions.auto_approve_read   = true;
         loaded_config.permissions.auto_approve_write  = true;
@@ -116,7 +123,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Run agent
-    Ui ui;
+    Ui ui(loaded_config.silent);
     Agent agent(loaded_config, ui, initial_mode);
     return agent.run(cli_prompt);
 }

@@ -16,6 +16,13 @@
 
 namespace fs = std::filesystem;
 
+static int count_lines(const std::string& s) {
+    if (s.empty()) return 0;
+    int n = (int)std::count(s.begin(), s.end(), '\n');
+    if (s.back() != '\n') ++n;
+    return n;
+}
+
 // ============================================================================
 // ToolResult implementation
 // ============================================================================
@@ -69,7 +76,7 @@ static const std::set<std::string> kSkipDirs = {
 };
 
 static constexpr size_t kMaxRegexLineBytes    = 2048;
-static constexpr int    kSubagentMinTimeoutSec = 600;  // 10 min floor for slow/single-residency SLMs
+static constexpr int    kSubagentMinTimeoutSec = 3600;  // 1 hr floor for resource-constrained systems
 
 // ============================================================================
 // Argument helpers
@@ -341,9 +348,7 @@ ToolResult tool_write_file(const ToolArgs& args) {
 
         std::string write_err = atomic_write(*path, *new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        int line_count = (int)std::count(new_content->begin(), new_content->end(), '\n');
-        if (!new_content->empty() && new_content->back() != '\n') ++line_count;
-        return ToolResult::ok("Written: " + *path + " (" + std::to_string(line_count) + " lines)");
+        return ToolResult::ok("Written: " + *path + " (" + std::to_string(count_lines(*new_content)) + " lines)");
     } catch (const std::exception& e) {
         return ToolResult::fail(std::string(e.what()));
     }
@@ -371,12 +376,6 @@ ToolResult tool_edit_file(const ToolArgs& args) {
         std::string new_content = content.substr(0, pos) + *new_str + content.substr(pos + old_str->size());
         std::string write_err = atomic_write(*path, new_content);
         if (!write_err.empty()) return ToolResult::fail(write_err);
-        auto count_lines = [](const std::string& s) -> int {
-            if (s.empty()) return 0;
-            int n = (int)std::count(s.begin(), s.end(), '\n');
-            if (s.back() != '\n') ++n;
-            return n;
-        };
         int delta = count_lines(*new_str) - count_lines(*old_str);
         std::string sign = (delta >= 0) ? "+" : "";
         return ToolResult::ok("Edited: " + *path + " (" + sign + std::to_string(delta) + " lines)");
@@ -588,6 +587,12 @@ ToolResult tool_run_shell(const ToolArgs& args) {
     bool interrupted = false;
     bool exited      = false;
 
+    auto drain = [&]() {
+        ssize_t bytes;
+        while ((bytes = read(pipefd[0], buf.data(), buf.size())) > 0)
+            output.write(buf.data(), bytes);
+    };
+
     while (!exited) {
         // Honour Ctrl+C: kill child process group and stop waiting
         if (should_interrupt.load()) {
@@ -602,13 +607,7 @@ ToolResult tool_run_shell(const ToolArgs& args) {
                 kill(-pid, SIGKILL);
                 waitpid(pid, &status, 0);
             }
-            // Drain any buffered output before closing the pipe
-            {
-                ssize_t bytes;
-                while ((bytes = read(pipefd[0], buf.data(), buf.size())) > 0) {
-                    output.write(buf.data(), bytes);
-                }
-            }
+            drain();
             break;
         }
 
@@ -617,13 +616,7 @@ ToolResult tool_run_shell(const ToolArgs& args) {
             timed_out = true;
             kill(-pid, SIGKILL);  // kill entire process group (shell + grandchildren)
             waitpid(pid, &status, 0);
-            // Drain remaining buffered output before closing the pipe
-            {
-                ssize_t bytes;
-                while ((bytes = read(pipefd[0], buf.data(), buf.size())) > 0) {
-                    output.write(buf.data(), bytes);
-                }
-            }
+            drain();
             break;
         }
 
@@ -723,7 +716,7 @@ ToolResult tool_spawn_agent(const ToolArgs& args, const std::string& config_path
     self_path[len] = '\0';
 
     std::string cmd = std::string(self_path) + " -p " + shell_quote(prompt)
-                    + " -m " + mode + " -y";
+                    + " -m " + mode + " -y -s";
     if (!config_path.empty()) {
         cmd += " --config " + shell_quote(config_path);
     }

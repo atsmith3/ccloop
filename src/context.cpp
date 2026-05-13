@@ -157,21 +157,8 @@ std::string ContextManager::to_json() const {
         if (i > 0) ss << ",";
 
         const Message& msg = messages_[i];
-        ss << "{\"role\":";
-
-        // Role
-        switch (msg.role) {
-            case Message::Role::System:
-                ss << "\"system\"";
-                break;
-            case Message::Role::User:
-                ss << "\"user\"";
-                break;
-            case Message::Role::Assistant:
-                ss << "\"assistant\"";
-                break;
-        }
-        ss << ",\"content\":\"" << escape_json(msg.content) << "\"";
+        ss << "{\"role\":\"" << role_to_str(msg.role) << "\""
+           << ",\"content\":\"" << escape_json(msg.content) << "\"";
 
         ss << "}";
     }
