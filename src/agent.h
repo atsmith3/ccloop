@@ -37,8 +37,9 @@ private:
     std::string    plan_accepted_text_;
     bool           plan_rejected_            = false;
     bool           task_done_called_          = false;
-    std::unordered_set<size_t> seen_calls_;
-    std::vector<SlashCommand>  slash_commands_;
+    std::unordered_set<size_t>  seen_calls_;
+    std::vector<SlashCommand>   slash_commands_;
+    std::vector<McpServerStatus> mcp_status_;
 
     void loop();
     void compact_with_summary();
@@ -53,6 +54,8 @@ private:
     void transition_to(AgentMode next);
     void rebuild_registry();
     void build_slash_commands();
+    void cmd_mcp_list();
+    void cmd_mcp_reload();
     std::string system_prompt() const;
 
     friend struct AgentTests;

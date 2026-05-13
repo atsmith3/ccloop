@@ -3,6 +3,8 @@
 #include "../src/config.h"
 #include "../src/json.h"
 #include <algorithm>
+#include <atomic>
+#include <thread>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -493,4 +495,87 @@ TEST(mcp_parse_tools_list_schema_without_properties) {
     CHECK_EQ(defs.size(), size_t(1));
     CHECK_EQ(defs[0].name, std::string("no_props"));
     CHECK(defs[0].params.empty());
+}
+
+// ============================================================================
+// StdioTransport — end-to-end McpClient API tests
+// ============================================================================
+
+TEST(mcp_stdio_list_tools_roundtrip) {
+    // Server handles initialize (id=1), consumes the notification, then answers tools/list (id=2)
+    std::string cmd =
+        "IFS= read -r line && "
+        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
+        "IFS= read -r line && "
+        "IFS= read -r line && "
+        "printf '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"ping\",\"description\":\"Ping\"}]}}\\n'";
+
+    Config cfg = make_stdio_config(cmd);
+    McpClient client(cfg.mcp_servers[0], cfg);
+    CHECK(client.initialize());
+    auto tools = client.list_tools();
+    CHECK_EQ(tools.size(), size_t(1));
+    CHECK_EQ(tools[0].name, std::string("ping"));
+    CHECK_EQ(tools[0].description, std::string("Ping"));
+}
+
+TEST(mcp_stdio_call_tool_roundtrip) {
+    // Server handles initialize (id=1), consumes the notification, then answers tools/call (id=2)
+    std::string cmd =
+        "IFS= read -r line && "
+        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
+        "IFS= read -r line && "
+        "IFS= read -r line && "
+        "printf '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"pong\"}]}}\\n'";
+
+    Config cfg = make_stdio_config(cmd);
+    McpClient client(cfg.mcp_servers[0], cfg);
+    CHECK(client.initialize());
+    ToolResult r = client.call_tool("ping", ToolArgs{});
+    CHECK(r.success);
+    CHECK_EQ(r.content, std::string("pong"));
+}
+
+TEST(mcp_stdio_rpc_error_response) {
+    // Server returns a JSON-RPC error object for the tool call → call_tool returns failure
+    std::string cmd =
+        "IFS= read -r line && "
+        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
+        "IFS= read -r line && "
+        "IFS= read -r line && "
+        "printf '{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-1,\"message\":\"boom\"}}\\n'";
+
+    Config cfg = make_stdio_config(cmd);
+    McpClient client(cfg.mcp_servers[0], cfg);
+    CHECK(client.initialize());
+    ToolResult r = client.call_tool("ping", ToolArgs{});
+    CHECK(!r.success);
+    CHECK(!r.error.empty());
+}
+
+TEST(mcp_stdio_concurrent_calls_no_crash) {
+    // Server echoes the correct id back for every RPC that carries one.
+    // The notification has no "id" field so it gets no response (grep produces nothing).
+    std::string cmd =
+        "while IFS= read -r line; do "
+        "  id=$(printf '%s' \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2); "
+        "  [ -n \"$id\" ] && "
+        "  printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\\n' \"$id\"; "
+        "done";
+
+    Config cfg = make_stdio_config(cmd);
+    McpClient client(cfg.mcp_servers[0], cfg);
+    CHECK(client.initialize());
+
+    std::atomic<int> success_count{0};
+    auto do_call = [&]() {
+        ToolResult r = client.call_tool("ping", ToolArgs{});
+        if (r.success) ++success_count;
+    };
+
+    std::thread t1(do_call), t2(do_call);
+    t1.join();
+    t2.join();
+
+    CHECK_EQ(success_count.load(), 2);
 }

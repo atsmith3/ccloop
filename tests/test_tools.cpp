@@ -420,8 +420,8 @@ TEST(tool_registry_act_mode_has_write_tools) {
     ToolRegistry registry = make_registry(AgentMode::Act, cfg);
 
     auto defs = registry.definitions();
-    // Should have 14 tools: 4 read-only + find_symbol + print + ask_user + run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir, delete_file, delete_dir)
-    CHECK_EQ(defs.size(), size_t(14));
+    // Should have 15 tools: 4 read-only + find_symbol + print + ask_user + run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir, delete_file, delete_dir) + complete_step
+    CHECK_EQ(defs.size(), size_t(15));
 
     // Verify write tools are present
     auto write_file = registry.find("write_file");

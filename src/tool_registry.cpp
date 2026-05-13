@@ -24,7 +24,7 @@ static ToolFn handler_or_noop(const AgentHandlers& handlers, const std::string& 
     return (h != handlers.end()) ? h->second : [](const ToolArgs&) { return ToolResult::ok(""); };
 }
 
-ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive, const AgentHandlers& handlers) {
+ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interactive, const AgentHandlers& handlers, std::vector<McpServerStatus>* status_out) {
     ToolRegistry registry;
 
     // Read-only tools: always registered
@@ -128,6 +128,19 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
             {{"path",      "string",  "Path to directory",                          true},
              {"recursive", "boolean", "Delete non-empty directories recursively",   false}},
             Permission::Delete, tool_delete_dir));
+
+        registry.register_tool(make_local_tool("complete_step",
+            "Mark a numbered plan step as done. Call this after finishing each step, "
+            "then immediately continue to the next step with a tool call.",
+            {{"step", "integer", "Step number to mark complete (1-based)", true}},
+            Permission::Read,
+            [](const ToolArgs& args) -> ToolResult {
+                auto it = args.find("step");
+                if (it == args.end() || !it->second.is_number())
+                    return ToolResult::fail("complete_step: 'step' argument required");
+                int n = (int)it->second.as_number();
+                return ToolResult::ok("Step " + std::to_string(n) + " done.");
+            }));
     }
 
     // run_shell is available in all modes (read-only exploration, build checks, etc.)
@@ -157,9 +170,17 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
         auto client = std::make_shared<McpClient>(server_cfg, cfg);
         if (!client->initialize()) {
             std::cerr << "[mcp] warning: could not connect to '" << server_cfg.name << "'\n";
+            if (status_out)
+                status_out->push_back({server_cfg.name, server_cfg.transport,
+                                       server_cfg.url, server_cfg.command, false, 0});
             continue;
         }
-        for (auto def : client->list_tools()) {
+        auto tool_defs = client->list_tools();
+        if (status_out)
+            status_out->push_back({server_cfg.name, server_cfg.transport,
+                                   server_cfg.url, server_cfg.command, true,
+                                   (int)tool_defs.size()});
+        for (auto def : tool_defs) {
             def.permission = server_cfg.write_tools.count(def.name) ? Permission::Write : Permission::Read;
             Tool tool;
             tool.def        = def;

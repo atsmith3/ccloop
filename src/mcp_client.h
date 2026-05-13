@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -42,4 +43,5 @@ private:
     Config                        cfg_;
     std::unique_ptr<McpTransport> transport_;
     int                           next_id_ = 1;
+    std::mutex                    mutex_;
 };
