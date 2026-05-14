@@ -6,7 +6,7 @@
 
 class Ui {
 public:
-    explicit Ui();
+    explicit Ui(bool silent = false) : silent_(silent) {}
 
     void show_message    (std::string_view role, std::string_view content);
     void show_tool_call  (const ToolCall& call, ToolSource source);
@@ -24,4 +24,7 @@ public:
     std::string  wait_for_input();
     std::string  ask_user(const std::string& question, const std::vector<std::string>& options);
     std::string  open_editor(const std::string& configured_editor = "");
+
+private:
+    bool silent_ = false;
 };

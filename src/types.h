@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <unordered_map>
 #include <optional>
@@ -70,6 +71,21 @@ struct Message {
     std::string content;
     size_t      estimated_tokens = 0;
 };
+
+inline std::string_view role_to_str(Message::Role r) {
+    switch (r) {
+        case Message::Role::System:    return "system";
+        case Message::Role::User:      return "user";
+        case Message::Role::Assistant: return "assistant";
+    }
+    return "user";
+}
+
+inline Message::Role str_to_role(const std::string& s) {
+    if (s == "system")    return Message::Role::System;
+    if (s == "assistant") return Message::Role::Assistant;
+    return Message::Role::User;
+}
 
 // LLM response
 struct LlmResponse {

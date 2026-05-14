@@ -61,41 +61,41 @@ ToolRegistry make_registry(AgentMode mode, const Config& cfg, bool non_interacti
          {"path",     "string", "Root path to search (default: current directory)",  false}},
         Permission::Read, tool_find_symbol));
 
+    auto register_native = [&](std::string name, std::string desc,
+                                std::vector<ToolParam> params, ToolFn fn) {
+        Tool t = make_local_tool(std::move(name), std::move(desc), std::move(params),
+                                 Permission::Read, std::move(fn));
+        t.agent_native = true;
+        registry.register_tool(std::move(t));
+    };
+
     // present_plan: Plan mode only
     if (mode == AgentMode::Plan) {
-        Tool t = make_local_tool("present_plan",
+        register_native("present_plan",
             "Present the completed plan to the user for approval. "
             "The user will accept (proceed to execution), request refinements, "
             "or reject the plan. Call this when the plan is fully formed.",
             {{"plan", "string", "The complete numbered plan text to present to the user", true}},
-            Permission::Read, handler_or_noop(handlers, "present_plan"));
-        t.agent_native = true;
-        registry.register_tool(std::move(t));
+            handler_or_noop(handlers, "present_plan"));
     }
 
     // print: both modes — explicit output to user / parent agent
-    {
-        Tool t = make_local_tool("print",
-            "Print a message to the user or parent agent. Use sparingly — only for "
-            "important findings, key decisions, or final answers. Do not use for "
-            "routine step announcements.",
-            {{"message", "string", "The message to display", true}},
-            Permission::Read, handler_or_noop(handlers, "print"));
-        t.agent_native = true;
-        registry.register_tool(std::move(t));
-    }
+    register_native("print",
+        "Print a message to the user or parent agent. Use sparingly — only for "
+        "important findings, key decisions, or final answers. Do not use for "
+        "routine step announcements.",
+        {{"message", "string", "The message to display", true}},
+        handler_or_noop(handlers, "print"));
 
     // ask_user: omitted in non-interactive and yolo (auto_approve_shell) modes
     if (!non_interactive && !cfg.permissions.auto_approve_shell) {
-        Tool t = make_local_tool("ask_user",
+        register_native("ask_user",
             "Ask the user a clarifying question and wait for their response. "
             "Optionally provide semicolon-separated choices (e.g. \"Yes;No;Maybe\"); "
             "a 'Custom response' option is always appended as the last choice.",
             {{"question", "string", "The question to present to the user",                            true},
              {"options",  "string", "Optional semicolon-separated list of choices, e.g. \"Option A;Option B\"", false}},
-            Permission::Read, handler_or_noop(handlers, "ask_user"));
-        t.agent_native = true;
-        registry.register_tool(std::move(t));
+            handler_or_noop(handlers, "ask_user"));
     }
 
     // Write tools (Act mode only)

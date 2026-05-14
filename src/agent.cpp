@@ -6,6 +6,13 @@
 #include <future>
 #include <sstream>
 
+static std::string trim(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return "";
+    size_t b = s.find_last_not_of(" \t\r\n");
+    return s.substr(a, b - a + 1);
+}
+
 Agent::Agent(Config config, Ui& ui, AgentMode initial_mode)
     : config_(config), mode_(initial_mode),
       context_(config.token_limit, config.compaction_keep_recent),
@@ -28,6 +35,12 @@ int Agent::run(const std::string& initial_prompt) {
     return exit_code_;
 }
 
+void Agent::reset_context() {
+    ContextManager fresh(config_.token_limit, config_.compaction_keep_recent);
+    fresh.push_system(system_prompt());
+    context_ = std::move(fresh);
+}
+
 std::string Agent::system_prompt() const {
     switch (mode_) {
         case AgentMode::Plan:
@@ -35,27 +48,28 @@ std::string Agent::system_prompt() const {
                 "You are an expert software architect helping a developer understand and plan "
                 "changes to their codebase.\n\n"
                 "## Keep this context lean — delegate exploration to sub-agents\n\n"
-                "Avoid reading files or running shell commands directly in this agent except for "
-                "quick single-item lookups. For anything broader, delegate to spawn_agent: the "
-                "sub-agent runs in isolation and returns a compact summary you use here. Raw file "
-                "contents should not accumulate in this context.\n\n"
-                "Use spawn_agent for:\n"
-                "- Reading more than one file, or any file over ~100 lines\n"
-                "- Searching the codebase for patterns or usages\n"
-                "- Running build/test commands and summarising the output\n"
-                "- Any research question that might touch multiple files\n\n"
+                "Never read files or run shell commands directly in this context. Every exploration "
+                "task — even reading a single short file — must go through spawn_agent. Raw file "
+                "contents must never accumulate here; only compact summaries returned by sub-agents.\n\n"
+                "Delegate everything:\n"
+                "- Reading any file -> spawn_agent\n"
+                "- Searching for patterns or usages -> spawn_agent\n"
+                "- Running build/test commands -> spawn_agent\n"
+                "- Any question that requires looking at the codebase -> spawn_agent\n\n"
                 "Examples:\n"
                 "  spawn_agent(prompt='Read src/agent.cpp and explain how the agent loop works')\n"
                 "  spawn_agent(prompt='Find all callers of compact() and report when it fires')\n"
                 "  spawn_agent(prompt='List src/ and summarize what each module does')\n\n"
-                "When independent research tasks can run simultaneously, call spawn_agent multiple\n"
-                "times in a single response — they execute in parallel and all results return\n"
-                "together before the next turn:\n\n"
+                "When research tasks are independent, issue all spawn_agent calls in a single response\n"
+                "so they run in parallel:\n\n"
                 "  spawn_agent(prompt='Read src/agent.cpp and explain the agent loop')\n"
                 "  spawn_agent(prompt='Read src/tools.cpp and list every tool and its permission level')\n"
-                "  spawn_agent(prompt='Run cmake --build build_local 2>&1 | tail -5 and report errors')\n\n"
-                "Important: do not call spawn_agent recursively. If you were invoked with a "
-                "specific focused task, complete it directly using tools — do not spawn further agents.\n\n"
+                "  spawn_agent(prompt='Run cd build_local && make -j 2>&1 | tail -10 and report errors')\n\n"
+                "Delegation rule — keep partitioning until each agent holds an atomic task:\n"
+                "Spawn sub-agents for each sub-question in your task. If a sub-agent's task still\n"
+                "covers multiple files or operations, it should spawn further sub-agents — one per\n"
+                "file or operation. Continue until each agent's task is truly atomic (one file, one\n"
+                "search, one command). An agent with an atomic task works directly with tools.\n\n"
                 "Never guess at file contents or project structure — always explore first. "
                 "If you are unsure which files are relevant, keep exploring until you are confident.\n\n"
                 "When producing an implementation plan:\n"
@@ -107,25 +121,26 @@ std::string Agent::system_prompt() const {
                 "When all steps are done, respond with a text summary of what was accomplished.\n\n"
                 "For conversational questions that don't require plan execution, answer in text.\n\n"
                 "Use print(message=...) to surface important status or findings mid-execution.\n\n"
-                "## Keep this context lean — delegate heavy steps to sub-agents\n\n"
-                "For any plan step that involves reading files, making edits, and verifying — "
-                "spawn a sub-agent with the complete task description:\n\n"
-                "  spawn_agent(prompt='In src/foo.cpp edit function bar to do X. "
-                "Read the file first, apply the change with edit_file, verify by reading it back.')\n"
-                "  spawn_agent(prompt='Run cmake --build build && ./build/ccl_test. Report pass/fail.')\n\n"
-                "When multiple plan steps are independent (different files, no ordering dependency),\n"
+                "## Keep this context lean — delegate every step to sub-agents\n\n"
+                "Spawn a worker for EVERY plan step — no exceptions. Your only direct tool calls\n"
+                "are spawn_agent, complete_step, ask_user, and print. Never call read_file,\n"
+                "edit_file, write_file, or run_shell directly in this context.\n\n"
+                "  spawn_agent(prompt='Step 2: in src/foo.cpp change function bar to do X. "
+                "Read the file first, apply the change, verify by reading it back. "
+                "If the step touches more than one file, spawn a sub-agent per file.')\n"
+                "  spawn_agent(prompt='Run cd build_local && make -j 2>&1 | tail -20. Report pass/fail and any errors.')\n\n"
+                "When multiple steps are independent (different files, no ordering dependency),\n"
                 "call spawn_agent for each in a single response — they run in parallel:\n\n"
-                "  spawn_agent(prompt='Edit src/foo.cpp: change function X to do Y. Read first, edit, verify.')\n"
-                "  spawn_agent(prompt='Edit src/bar.cpp: add function Z. Read first, write, verify.')\n"
-                "  spawn_agent(prompt='Run cmake --build build_local && ./build_local/ccl_test. Report pass/fail.')\n\n"
-                "The sub-agent returns a summary of what it did. Call complete_step(step=N) to mark "
-                "it done, then immediately continue to the next step. Do not re-read files the "
-                "sub-agent already processed.\n\n"
-                "Only work directly (read_file, edit_file, write_file) for genuinely trivial "
-                "changes: a single targeted edit of < 5 lines where you already know exactly "
-                "what to change.\n\n"
-                "Important: do not call spawn_agent recursively. Complete the specific task you "
-                "were given without spawning further agents.\n\n"
+                "  spawn_agent(prompt='Step 3: edit src/foo.cpp — change function X to do Y. Read first, edit, verify.')\n"
+                "  spawn_agent(prompt='Step 4: edit src/bar.cpp — add function Z. Read first, write, verify.')\n\n"
+                "The worker returns a summary. Call complete_step(step=N), then immediately\n"
+                "continue to the next step with another spawn_agent or complete_step. Never\n"
+                "re-read files the worker already processed.\n\n"
+                "Delegation rule — keep partitioning until each agent holds an atomic task:\n"
+                "A worker whose step covers multiple files should spawn one sub-agent per file.\n"
+                "Each sub-agent should further partition if needed. Continue until each agent's\n"
+                "task is truly atomic (one file read, one edit, one command). An agent with an\n"
+                "atomic task works directly with tools — no further spawning.\n\n"
                 "Match existing code style. Stay within plan scope.\n\n"
                 "## Roadblock (use only when you cannot proceed without user input)\n\n"
                 "  ## Roadblock: <one-line description of what is blocking you>\n\n"
@@ -256,11 +271,9 @@ void Agent::loop() {
         if (plan_accepted_) {
             plan_accepted_ = false;
             std::string plan_text = std::move(plan_accepted_text_);
-            ContextManager fresh_ctx(config_.token_limit, config_.compaction_keep_recent);
             mode_ = AgentMode::Act;
             rebuild_registry();
-            fresh_ctx.push_system(system_prompt());
-            context_ = std::move(fresh_ctx);
+            reset_context();
             ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
             pending_execution_ =
                 "Execute the following plan step by step without pausing.\n\n" + plan_text;
@@ -269,9 +282,7 @@ void Agent::loop() {
 
         if (plan_rejected_) {
             plan_rejected_ = false;
-            ContextManager fresh_ctx(config_.token_limit, config_.compaction_keep_recent);
-            fresh_ctx.push_system(system_prompt());
-            context_ = std::move(fresh_ctx);
+            reset_context();
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
             std::cout << "[plan rejected] Context cleared. Ready for new task.\n";
             std::cout.flush();
@@ -461,8 +472,7 @@ ToolResult Agent::handle_ask_user(const ToolArgs& args) {
         std::istringstream ss(o_it->second.as_string());
         std::string token;
         while (std::getline(ss, token, ';')) {
-            while (!token.empty() && (token.front() == ' ' || token.front() == '\t')) token.erase(token.begin());
-            while (!token.empty() && (token.back() == ' ' || token.back() == '\t' || token.back() == '\r')) token.pop_back();
+            token = trim(token);
             if (!token.empty()) options.push_back(token);
         }
     }
@@ -475,15 +485,6 @@ bool Agent::save_context(const std::string& path) const {
     std::ofstream f(path);
     if (!f) return false;
 
-    auto role_str = [](Message::Role r) -> std::string_view {
-        switch (r) {
-            case Message::Role::System:    return "system";
-            case Message::Role::User:      return "user";
-            case Message::Role::Assistant: return "assistant";
-        }
-        return "user";
-    };
-
     f << "{\n"
       << "  \"version\": 1,\n"
       << "  \"mode\": \"" << (mode_ == AgentMode::Plan ? "plan" : "act") << "\",\n"
@@ -492,7 +493,7 @@ bool Agent::save_context(const std::string& path) const {
 
     const auto& msgs = context_.messages();
     for (size_t i = 0; i < msgs.size(); ++i) {
-        f << "    {\"role\": \"" << role_str(msgs[i].role)
+        f << "    {\"role\": \"" << role_to_str(msgs[i].role)
           << "\", \"content\": \"" << escape_json(msgs[i].content)
           << "\", \"estimated_tokens\": " << msgs[i].estimated_tokens << "}";
         if (i + 1 < msgs.size()) f << ",";
@@ -533,11 +534,7 @@ bool Agent::restore_context(const std::string& path) {
         auto tokens_v  = m->get("estimated_tokens");
         if (!role_v || !content_v) continue;
 
-        Message::Role role;
-        const std::string& rs = role_v->as_string();
-        if      (rs == "system")    role = Message::Role::System;
-        else if (rs == "assistant") role = Message::Role::Assistant;
-        else                        role = Message::Role::User;
+        Message::Role role = str_to_role(role_v->as_string());
 
         size_t est = (tokens_v && tokens_v->is_number())
             ? static_cast<size_t>(tokens_v->as_number()) : 0;
@@ -566,9 +563,7 @@ void Agent::build_slash_commands() {
 
     slash_commands_.push_back({"clear", "clear context and start fresh",
         [this](const std::string&) {
-            ContextManager new_ctx(config_.token_limit, config_.compaction_keep_recent);
-            new_ctx.push_system(system_prompt());
-            context_ = std::move(new_ctx);
+            reset_context();
             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
         }});
 
@@ -577,7 +572,7 @@ void Agent::build_slash_commands() {
             size_t sp = arg.find(' ');
             std::string sub  = (sp == std::string::npos) ? arg : arg.substr(0, sp);
             std::string file = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
-            while (!file.empty() && file[0] == ' ') file = file.substr(1);
+            file = trim(file);
 
             if (sub == "save" && !file.empty()) {
                 if (save_context(file))
@@ -642,8 +637,7 @@ bool Agent::handle_slash_command(std::string_view input) {
         ? cmd.substr(1) : cmd.substr(1, space_pos - 1);
     std::string arg = (space_pos == std::string::npos)
         ? "" : cmd.substr(space_pos + 1);
-    while (!arg.empty() && arg[0] == ' ')     arg = arg.substr(1);
-    while (!arg.empty() && arg.back() == ' ') arg.pop_back();
+    arg = trim(arg);
 
     for (const auto& sc : slash_commands_) {
         if (sc.name == command) { sc.fn(arg); return true; }
