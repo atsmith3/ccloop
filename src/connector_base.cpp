@@ -19,10 +19,11 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "connector_base.h"
-#include "agent.h"
+#include "signals.h"
 #include <chrono>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 
 static int interrupt_progress_cb(void *, curl_off_t, curl_off_t, curl_off_t,
@@ -31,7 +32,10 @@ static int interrupt_progress_cb(void *, curl_off_t, curl_off_t, curl_off_t,
 }
 
 ConnectorBase::ConnectorBase(const Config &cfg)
-    : cfg_(cfg), curl_(curl_easy_init()) {}
+    : cfg_(cfg), curl_(curl_easy_init()) {
+  if (!curl_)
+    throw std::runtime_error("curl_easy_init() failed");
+}
 
 ConnectorBase::~ConnectorBase() {
   if (curl_)

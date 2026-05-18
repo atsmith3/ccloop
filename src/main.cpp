@@ -26,9 +26,9 @@
 #include <csignal>
 #include <iostream>
 
-static void sigint_handler(int) { should_interrupt = true; }
+static void sigint_handler(int) noexcept { should_interrupt = true; }
 
-static void sigterm_handler(int) { should_exit = true; }
+static void sigterm_handler(int) noexcept { should_exit = true; }
 
 static void print_version() {
   std::cout << "ccl " << CCL_VERSION << "\n"
