@@ -3,3 +3,4 @@ build*/
 .*.swo
 env.sh
 test_project/
+.venv

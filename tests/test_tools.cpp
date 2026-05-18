@@ -1,5 +1,25 @@
-#include "harness.h"
+// Copyright 2026 Andrew Smith
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "../src/tools.h"
+#include "harness.h"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -8,198 +28,206 @@ namespace fs = std::filesystem;
 
 // RAII helper for temp directory
 struct TmpDir {
-    std::string path;
-    TmpDir() {
-        path = fs::temp_directory_path().string() + "/ccl_test_" + std::to_string(std::rand());
-        fs::create_directories(path);
+  std::string path;
+  TmpDir() {
+    path = fs::temp_directory_path().string() + "/ccl_test_" +
+           std::to_string(std::rand());
+    fs::create_directories(path);
+  }
+  ~TmpDir() {
+    if (fs::exists(path)) {
+      fs::remove_all(path);
     }
-    ~TmpDir() {
-        if (fs::exists(path)) {
-            fs::remove_all(path);
-        }
-    }
+  }
 };
 
 TEST(tool_read_file_existing) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/test.txt";
-    {
-        std::ofstream f(file_path);
-        f << "Hello, world!";
-    }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/test.txt";
+  {
+    std::ofstream f(file_path);
+    f << "Hello, world!";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK_EQ(result.content, std::string("Hello, world!"));
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK_EQ(result.content, std::string("Hello, world!"));
 }
 
 TEST(tool_read_file_missing) {
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>("/nonexistent/file.txt");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>("/nonexistent/file.txt");
 
-    ToolResult result = tool_read_file(args);
-    CHECK(!result.success);
-    CHECK(!result.error.empty());
+  ToolResult result = tool_read_file(args);
+  CHECK(!result.success);
+  CHECK(!result.error.empty());
 }
 
 TEST(tool_list_dir_existing) {
-    TmpDir tmp;
-    {
-        std::ofstream f(tmp.path + "/file1.txt");
-        f << "test";
-    }
-    {
-        std::ofstream f(tmp.path + "/file2.txt");
-        f << "test";
-    }
+  TmpDir tmp;
+  {
+    std::ofstream f(tmp.path + "/file1.txt");
+    f << "test";
+  }
+  {
+    std::ofstream f(tmp.path + "/file2.txt");
+    f << "test";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_list_dir(args);
-    CHECK(result.success);
-    // Should contain file names
-    CHECK(result.content.find("file1.txt") != std::string::npos);
-    CHECK(result.content.find("file2.txt") != std::string::npos);
+  ToolResult result = tool_list_dir(args);
+  CHECK(result.success);
+  // Should contain file names
+  CHECK(result.content.find("file1.txt") != std::string::npos);
+  CHECK(result.content.find("file2.txt") != std::string::npos);
 }
 
 TEST(tool_list_dir_missing) {
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>("/nonexistent/dir");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>("/nonexistent/dir");
 
-    ToolResult result = tool_list_dir(args);
-    CHECK(!result.success);
+  ToolResult result = tool_list_dir(args);
+  CHECK(!result.success);
 }
 
 TEST(tool_file_info_existing) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/test.txt";
-    {
-        std::ofstream f(file_path);
-        f << "test content";
-    }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/test.txt";
+  {
+    std::ofstream f(file_path);
+    f << "test content";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
 
-    ToolResult result = tool_file_info(args);
-    CHECK(result.success);
-    CHECK(result.content.find("exists: true") != std::string::npos);
-    CHECK(result.content.find("is_file: true") != std::string::npos);
+  ToolResult result = tool_file_info(args);
+  CHECK(result.success);
+  CHECK(result.content.find("exists: true") != std::string::npos);
+  CHECK(result.content.find("is_file: true") != std::string::npos);
 }
 
 TEST(tool_file_info_missing) {
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>("/nonexistent/path");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>("/nonexistent/path");
 
-    ToolResult result = tool_file_info(args);
-    CHECK(result.success);
-    CHECK(result.content.find("exists: false") != std::string::npos);
+  ToolResult result = tool_file_info(args);
+  CHECK(result.success);
+  CHECK(result.content.find("exists: false") != std::string::npos);
 }
 
 TEST(tool_search_files_finds_match) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/test.txt";
-    {
-        std::ofstream f(file_path);
-        f << "hello world\n";
-        f << "goodbye world\n";
-    }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/test.txt";
+  {
+    std::ofstream f(file_path);
+    f << "hello world\n";
+    f << "goodbye world\n";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"] = JsonValue();
-    args["pattern"].data.emplace<std::string>("hello");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"] = JsonValue();
+  args["pattern"].data.emplace<std::string>("hello");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(result.content.find("hello") != std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(result.content.find("hello") != std::string::npos);
 }
 
 TEST(tool_search_files_no_match) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/test.txt";
-    {
-        std::ofstream f(file_path);
-        f << "hello world\n";
-    }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/test.txt";
+  {
+    std::ofstream f(file_path);
+    f << "hello world\n";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"] = JsonValue();
-    args["pattern"].data.emplace<std::string>("nomatch");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"] = JsonValue();
+  args["pattern"].data.emplace<std::string>("nomatch");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(result.content.find("no matches") != std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(result.content.find("no matches") != std::string::npos);
 }
 
 TEST(tool_search_files_no_pattern_lists_files) {
-    TmpDir tmp;
-    { std::ofstream f(tmp.path + "/readme.txt"); f << "hello\n"; }
-    { std::ofstream f(tmp.path + "/main.cpp");  f << "hello\n"; }
+  TmpDir tmp;
+  {
+    std::ofstream f(tmp.path + "/readme.txt");
+    f << "hello\n";
+  }
+  {
+    std::ofstream f(tmp.path + "/main.cpp");
+    f << "hello\n";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["file_glob"] = JsonValue();
-    args["file_glob"].data.emplace<std::string>("*.txt");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["file_glob"] = JsonValue();
+  args["file_glob"].data.emplace<std::string>("*.txt");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(result.content.find("readme.txt") != std::string::npos);
-    CHECK(result.content.find("main.cpp") == std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(result.content.find("readme.txt") != std::string::npos);
+  CHECK(result.content.find("main.cpp") == std::string::npos);
 }
 
 TEST(tool_registry_find_existing) {
-    Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
+  Config cfg = Config::defaults();
+  ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
-    auto tool = registry.find("read_file");
-    CHECK(tool.has_value());
-    CHECK_EQ(tool.value()->def.name, std::string("read_file"));
+  auto tool = registry.find("read_file");
+  CHECK(tool.has_value());
+  CHECK_EQ(tool.value()->def.name, std::string("read_file"));
 }
 
 TEST(tool_registry_find_missing) {
-    Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
+  Config cfg = Config::defaults();
+  ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
-    auto tool = registry.find("nonexistent_tool");
-    CHECK(!tool.has_value());
+  auto tool = registry.find("nonexistent_tool");
+  CHECK(!tool.has_value());
 }
 
 TEST(tool_registry_definitions_count) {
-    Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
+  Config cfg = Config::defaults();
+  ToolRegistry registry = make_registry(AgentMode::Plan, cfg);
 
-    auto defs = registry.definitions();
-    // 4 read-only tools + find_symbol + present_plan + print + ask_user + run_shell + spawn_agent
-    CHECK_EQ(defs.size(), size_t(10));
+  auto defs = registry.definitions();
+  // 4 read-only tools + find_symbol + present_plan + print + ask_user +
+  // run_shell + spawn_agent
+  CHECK_EQ(defs.size(), size_t(10));
 }
 
 TEST(tool_result_ok_fields) {
-    ToolResult result = ToolResult::ok("success message");
-    CHECK(result.success);
-    CHECK_EQ(result.content, std::string("success message"));
-    CHECK_EQ(result.error, std::string(""));
+  ToolResult result = ToolResult::ok("success message");
+  CHECK(result.success);
+  CHECK_EQ(result.content, std::string("success message"));
+  CHECK_EQ(result.error, std::string(""));
 }
 
 TEST(tool_result_fail_fields) {
-    ToolResult result = ToolResult::fail("error message");
-    CHECK(!result.success);
-    CHECK_EQ(result.content, std::string(""));
-    CHECK_EQ(result.error, std::string("error message"));
+  ToolResult result = ToolResult::fail("error message");
+  CHECK(!result.success);
+  CHECK_EQ(result.content, std::string(""));
+  CHECK_EQ(result.error, std::string("error message"));
 }
 
 // ============================================================================
@@ -207,229 +235,237 @@ TEST(tool_result_fail_fields) {
 // ============================================================================
 
 TEST(tool_write_file_creates_new_file) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/new_file.txt";
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/new_file.txt";
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
-    args["content"] = JsonValue();
-    args["content"].data.emplace<std::string>("Hello, world!");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
+  args["content"] = JsonValue();
+  args["content"].data.emplace<std::string>("Hello, world!");
 
-    ToolResult result = tool_write_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_write_file(args);
+  CHECK(result.success);
 
-    // Verify file exists with correct content
-    std::ifstream file(file_path);
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    CHECK_EQ(content, std::string("Hello, world!"));
+  // Verify file exists with correct content
+  std::ifstream file(file_path);
+  std::string content((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+  CHECK_EQ(content, std::string("Hello, world!"));
 
-    // Verify no .tmp file remains
-    CHECK(!fs::exists(file_path + ".ccl.tmp"));
+  // Verify no .tmp file remains
+  CHECK(!fs::exists(file_path + ".ccl.tmp"));
 }
 
 TEST(tool_write_file_overwrites_existing) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/existing.txt";
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/existing.txt";
 
-    // Create initial file
-    {
-        std::ofstream f(file_path);
-        f << "Old content";
-    }
+  // Create initial file
+  {
+    std::ofstream f(file_path);
+    f << "Old content";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
-    args["content"] = JsonValue();
-    args["content"].data.emplace<std::string>("New content");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
+  args["content"] = JsonValue();
+  args["content"].data.emplace<std::string>("New content");
 
-    ToolResult result = tool_write_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_write_file(args);
+  CHECK(result.success);
 
-    // Verify file has new content
-    std::ifstream file(file_path);
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    CHECK_EQ(content, std::string("New content"));
+  // Verify file has new content
+  std::ifstream file(file_path);
+  std::string content((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+  CHECK_EQ(content, std::string("New content"));
 }
 
 TEST(tool_write_file_diff_in_result) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/test.txt";
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/test.txt";
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
-    args["content"] = JsonValue();
-    args["content"].data.emplace<std::string>("line1\nline2");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
+  args["content"] = JsonValue();
+  args["content"].data.emplace<std::string>("line1\nline2");
 
-    ToolResult result = tool_write_file(args);
-    CHECK(result.success);
-    CHECK(result.content == "Written: " + file_path + " (2 lines)");
+  ToolResult result = tool_write_file(args);
+  CHECK(result.success);
+  CHECK(result.content == "Written: " + file_path + " (2 lines)");
 }
 
 TEST(tool_write_file_atomic_no_tmp_remaining) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/atomic.txt";
-    std::string tmp_path = file_path + ".ccl.tmp";
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/atomic.txt";
+  std::string tmp_path = file_path + ".ccl.tmp";
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
-    args["content"] = JsonValue();
-    args["content"].data.emplace<std::string>("atomic write");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
+  args["content"] = JsonValue();
+  args["content"].data.emplace<std::string>("atomic write");
 
-    ToolResult result = tool_write_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_write_file(args);
+  CHECK(result.success);
 
-    // Verify .tmp file was cleaned up
-    CHECK(!fs::exists(tmp_path));
-    // Verify actual file exists
-    CHECK(fs::exists(file_path));
+  // Verify .tmp file was cleaned up
+  CHECK(!fs::exists(tmp_path));
+  // Verify actual file exists
+  CHECK(fs::exists(file_path));
 }
 
 TEST(tool_create_dir_creates_directory) {
-    TmpDir tmp;
-    std::string dir_path = tmp.path + "/newdir";
+  TmpDir tmp;
+  std::string dir_path = tmp.path + "/newdir";
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(dir_path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir_path);
 
-    ToolResult result = tool_create_dir(args);
-    CHECK(result.success);
-    CHECK(fs::exists(dir_path));
-    CHECK(fs::is_directory(dir_path));
+  ToolResult result = tool_create_dir(args);
+  CHECK(result.success);
+  CHECK(fs::exists(dir_path));
+  CHECK(fs::is_directory(dir_path));
 }
 
 TEST(tool_create_dir_nested_path) {
-    TmpDir tmp;
-    std::string dir_path = tmp.path + "/a/b/c";
+  TmpDir tmp;
+  std::string dir_path = tmp.path + "/a/b/c";
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(dir_path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir_path);
 
-    ToolResult result = tool_create_dir(args);
-    CHECK(result.success);
-    CHECK(fs::exists(dir_path));
+  ToolResult result = tool_create_dir(args);
+  CHECK(result.success);
+  CHECK(fs::exists(dir_path));
 }
 
 TEST(tool_create_dir_already_exists_ok) {
-    TmpDir tmp;
-    std::string dir_path = tmp.path + "/existing";
-    fs::create_directories(dir_path);
+  TmpDir tmp;
+  std::string dir_path = tmp.path + "/existing";
+  fs::create_directories(dir_path);
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(dir_path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir_path);
 
-    ToolResult result = tool_create_dir(args);
-    CHECK(result.success);
+  ToolResult result = tool_create_dir(args);
+  CHECK(result.success);
 }
 
 TEST(tool_delete_file_removes_file) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/to_delete.txt";
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/to_delete.txt";
 
-    // Create file
-    {
-        std::ofstream f(file_path);
-        f << "delete me";
-    }
+  // Create file
+  {
+    std::ofstream f(file_path);
+    f << "delete me";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>(file_path);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file_path);
 
-    ToolResult result = tool_delete_file(args);
-    CHECK(result.success);
-    CHECK(!fs::exists(file_path));
+  ToolResult result = tool_delete_file(args);
+  CHECK(result.success);
+  CHECK(!fs::exists(file_path));
 }
 
 TEST(tool_delete_file_missing_returns_error) {
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>("/nonexistent/file.txt");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>("/nonexistent/file.txt");
 
-    ToolResult result = tool_delete_file(args);
-    CHECK(!result.success);
-    CHECK(!result.error.empty());
+  ToolResult result = tool_delete_file(args);
+  CHECK(!result.success);
+  CHECK(!result.error.empty());
 }
 
 TEST(tool_run_shell_captures_stdout) {
-    ToolArgs args;
-    args["command"] = JsonValue();
-    args["command"].data.emplace<std::string>("echo hello");
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("echo hello");
 
-    ToolResult result = tool_run_shell(args);
-    CHECK(result.success);
-    CHECK(result.content.find("hello") != std::string::npos);
+  ToolResult result = tool_run_shell(args);
+  CHECK(result.success);
+  CHECK(result.content.find("hello") != std::string::npos);
 }
 
 TEST(tool_run_shell_nonzero_exit_fails) {
-    ToolArgs args;
-    args["command"] = JsonValue();
-    args["command"].data.emplace<std::string>("exit 1");
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("exit 1");
 
-    ToolResult result = tool_run_shell(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("exit 1") != std::string::npos);
+  ToolResult result = tool_run_shell(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("exit 1") != std::string::npos);
 }
 
 TEST(tool_run_shell_timeout_sec_override) {
-    ToolArgs args;
-    args["command"] = JsonValue(); args["command"].data.emplace<std::string>("sleep 100");
-    args["timeout_sec"] = JsonValue(); args["timeout_sec"].data.emplace<std::string>("1");
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("sleep 100");
+  args["timeout_sec"] = JsonValue();
+  args["timeout_sec"].data.emplace<std::string>("1");
 
-    auto t0 = std::chrono::steady_clock::now();
-    ToolResult result = tool_run_shell(args);
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::steady_clock::now() - t0).count();
+  auto t0 = std::chrono::steady_clock::now();
+  ToolResult result = tool_run_shell(args);
+  auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                     std::chrono::steady_clock::now() - t0)
+                     .count();
 
-    CHECK(!result.success);
-    CHECK(result.error.find("timeout after 1") != std::string::npos);
-    CHECK(elapsed < 15);  // must not wait 30s
+  CHECK(!result.success);
+  CHECK(result.error.find("timeout after 1") != std::string::npos);
+  CHECK(elapsed < 15); // must not wait 30s
 }
 
 TEST(tool_run_shell_timeout_captures_output) {
-    ToolArgs args;
-    args["command"] = JsonValue();
-    args["command"].data.emplace<std::string>("echo started && sleep 100");
-    args["timeout_sec"] = JsonValue(); args["timeout_sec"].data.emplace<std::string>("1");
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("echo started && sleep 100");
+  args["timeout_sec"] = JsonValue();
+  args["timeout_sec"].data.emplace<std::string>("1");
 
-    ToolResult result = tool_run_shell(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("started") != std::string::npos);
+  ToolResult result = tool_run_shell(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("started") != std::string::npos);
 }
 
 TEST(tool_run_shell_timeout_kills_process) {
-    ToolArgs args;
-    args["command"] = JsonValue();
-    args["command"].data.emplace<std::string>("sleep 10");
-    args["timeout_sec"] = JsonValue();
-    args["timeout_sec"].data.emplace<double>(1.0);
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("sleep 10");
+  args["timeout_sec"] = JsonValue();
+  args["timeout_sec"].data.emplace<double>(1.0);
 
-    ToolResult result = tool_run_shell(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("timeout") != std::string::npos);
+  ToolResult result = tool_run_shell(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("timeout") != std::string::npos);
 }
 
 TEST(tool_registry_act_mode_has_write_tools) {
-    Config cfg = Config::defaults();
-    ToolRegistry registry = make_registry(AgentMode::Act, cfg);
+  Config cfg = Config::defaults();
+  ToolRegistry registry = make_registry(AgentMode::Act, cfg);
 
-    auto defs = registry.definitions();
-    // Should have 15 tools: 4 read-only + find_symbol + print + ask_user + run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir, delete_file, delete_dir) + complete_step
-    CHECK_EQ(defs.size(), size_t(15));
+  auto defs = registry.definitions();
+  // Should have 15 tools: 4 read-only + find_symbol + print + ask_user +
+  // run_shell + spawn_agent + 5 write (write_file, edit_file, create_dir,
+  // delete_file, delete_dir) + complete_step
+  CHECK_EQ(defs.size(), size_t(15));
 
-    // Verify write tools are present
-    auto write_file = registry.find("write_file");
-    auto edit_file  = registry.find("edit_file");
-    auto delete_file = registry.find("delete_file");
-    CHECK(write_file.has_value());
-    CHECK(edit_file.has_value());
-    CHECK(delete_file.has_value());
+  // Verify write tools are present
+  auto write_file = registry.find("write_file");
+  auto edit_file = registry.find("edit_file");
+  auto delete_file = registry.find("delete_file");
+  CHECK(write_file.has_value());
+  CHECK(edit_file.has_value());
+  CHECK(delete_file.has_value());
 }
 
 // ============================================================================
@@ -437,77 +473,90 @@ TEST(tool_registry_act_mode_has_write_tools) {
 // ============================================================================
 
 TEST(tool_edit_file_replaces_string) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/edit.txt";
-    { std::ofstream f(file_path); f << "hello world\n"; }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/edit.txt";
+  {
+    std::ofstream f(file_path);
+    f << "hello world\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(file_path);
-    args["old_str"].data.emplace<std::string>("hello");
-    args["new_str"].data.emplace<std::string>("goodbye");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(file_path);
+  args["old_str"].data.emplace<std::string>("hello");
+  args["new_str"].data.emplace<std::string>("goodbye");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_edit_file(args);
+  CHECK(result.success);
 
-    std::ifstream f(file_path);
-    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    CHECK(content.find("goodbye") != std::string::npos);
-    CHECK(content.find("hello") == std::string::npos);
+  std::ifstream f(file_path);
+  std::string content((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+  CHECK(content.find("goodbye") != std::string::npos);
+  CHECK(content.find("hello") == std::string::npos);
 }
 
 TEST(tool_edit_file_not_found_returns_error) {
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("/nonexistent/file.txt");
-    args["old_str"].data.emplace<std::string>("foo");
-    args["new_str"].data.emplace<std::string>("bar");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("/nonexistent/file.txt");
+  args["old_str"].data.emplace<std::string>("foo");
+  args["new_str"].data.emplace<std::string>("bar");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(!result.success);
+  ToolResult result = tool_edit_file(args);
+  CHECK(!result.success);
 }
 
 TEST(tool_edit_file_old_str_missing_returns_error) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/edit.txt";
-    { std::ofstream f(file_path); f << "hello world\n"; }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/edit.txt";
+  {
+    std::ofstream f(file_path);
+    f << "hello world\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(file_path);
-    args["old_str"].data.emplace<std::string>("nomatch");
-    args["new_str"].data.emplace<std::string>("bar");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(file_path);
+  args["old_str"].data.emplace<std::string>("nomatch");
+  args["new_str"].data.emplace<std::string>("bar");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("not found") != std::string::npos);
+  ToolResult result = tool_edit_file(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("not found") != std::string::npos);
 }
 
 TEST(tool_edit_file_ambiguous_returns_error) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/edit.txt";
-    { std::ofstream f(file_path); f << "foo foo\n"; }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/edit.txt";
+  {
+    std::ofstream f(file_path);
+    f << "foo foo\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(file_path);
-    args["old_str"].data.emplace<std::string>("foo");
-    args["new_str"].data.emplace<std::string>("bar");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(file_path);
+  args["old_str"].data.emplace<std::string>("foo");
+  args["new_str"].data.emplace<std::string>("bar");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("ambiguous") != std::string::npos);
+  ToolResult result = tool_edit_file(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("ambiguous") != std::string::npos);
 }
 
 TEST(tool_edit_file_diff_in_result) {
-    TmpDir tmp;
-    std::string file_path = tmp.path + "/edit.txt";
-    { std::ofstream f(file_path); f << "line1\nline2\n"; }
+  TmpDir tmp;
+  std::string file_path = tmp.path + "/edit.txt";
+  {
+    std::ofstream f(file_path);
+    f << "line1\nline2\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(file_path);
-    args["old_str"].data.emplace<std::string>("line2");
-    args["new_str"].data.emplace<std::string>("lineX");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(file_path);
+  args["old_str"].data.emplace<std::string>("line2");
+  args["new_str"].data.emplace<std::string>("lineX");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(result.success);
-    CHECK(result.content == "Edited: " + file_path + " (+0 lines)");
+  ToolResult result = tool_edit_file(args);
+  CHECK(result.success);
+  CHECK(result.content == "Edited: " + file_path + " (+0 lines)");
 }
 
 // ============================================================================
@@ -515,35 +564,47 @@ TEST(tool_edit_file_diff_in_result) {
 // ============================================================================
 
 TEST(tool_search_files_glob_filter_matches) {
-    TmpDir tmp;
-    { std::ofstream f(tmp.path + "/code.cpp"); f << "hello cpp\n"; }
-    { std::ofstream f(tmp.path + "/notes.txt"); f << "hello txt\n"; }
+  TmpDir tmp;
+  {
+    std::ofstream f(tmp.path + "/code.cpp");
+    f << "hello cpp\n";
+  }
+  {
+    std::ofstream f(tmp.path + "/notes.txt");
+    f << "hello txt\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"].data.emplace<std::string>("hello");
-    args["file_glob"].data.emplace<std::string>("*.cpp");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"].data.emplace<std::string>("hello");
+  args["file_glob"].data.emplace<std::string>("*.cpp");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(result.content.find("code.cpp") != std::string::npos);
-    CHECK(result.content.find("notes.txt") == std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(result.content.find("code.cpp") != std::string::npos);
+  CHECK(result.content.find("notes.txt") == std::string::npos);
 }
 
 TEST(tool_search_files_skips_hidden_dirs) {
-    TmpDir tmp;
-    fs::create_directories(tmp.path + "/.git");
-    { std::ofstream f(tmp.path + "/.git/secret"); f << "hello secret\n"; }
-    { std::ofstream f(tmp.path + "/visible.txt"); f << "hello visible\n"; }
+  TmpDir tmp;
+  fs::create_directories(tmp.path + "/.git");
+  {
+    std::ofstream f(tmp.path + "/.git/secret");
+    f << "hello secret\n";
+  }
+  {
+    std::ofstream f(tmp.path + "/visible.txt");
+    f << "hello visible\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"].data.emplace<std::string>("hello");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"].data.emplace<std::string>("hello");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(result.content.find("visible.txt") != std::string::npos);
-    CHECK(result.content.find(".git") == std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(result.content.find("visible.txt") != std::string::npos);
+  CHECK(result.content.find(".git") == std::string::npos);
 }
 
 // ============================================================================
@@ -551,130 +612,149 @@ TEST(tool_search_files_skips_hidden_dirs) {
 // ============================================================================
 
 TEST(tool_write_file_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;  // skip if HOME not set
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return; // skip if HOME not set
 
-    std::string real_path = std::string(home) + "/ccl_tilde_test.txt";
-    // Clean up any leftover from a previous run
-    fs::remove(real_path);
+  std::string real_path = std::string(home) + "/ccl_tilde_test.txt";
+  // Clean up any leftover from a previous run
+  fs::remove(real_path);
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~/ccl_tilde_test.txt");
-    args["content"].data.emplace<std::string>("tilde test");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~/ccl_tilde_test.txt");
+  args["content"].data.emplace<std::string>("tilde test");
 
-    ToolResult result = tool_write_file(args);
-    CHECK(result.success);
-    CHECK(fs::exists(real_path));
+  ToolResult result = tool_write_file(args);
+  CHECK(result.success);
+  CHECK(fs::exists(real_path));
 
-    fs::remove(real_path);  // clean up
+  fs::remove(real_path); // clean up
 }
 
 TEST(tool_read_file_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return;
 
-    std::string real_path = std::string(home) + "/ccl_tilde_test.txt";
-    { std::ofstream f(real_path); f << "hello tilde"; }
+  std::string real_path = std::string(home) + "/ccl_tilde_test.txt";
+  {
+    std::ofstream f(real_path);
+    f << "hello tilde";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~/ccl_tilde_test.txt");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~/ccl_tilde_test.txt");
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK_EQ(result.content, std::string("hello tilde"));
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK_EQ(result.content, std::string("hello tilde"));
 
-    fs::remove(real_path);  // clean up
+  fs::remove(real_path); // clean up
 }
 
 TEST(tool_list_dir_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return;
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~");
 
-    ToolResult result = tool_list_dir(args);
-    CHECK(result.success);
+  ToolResult result = tool_list_dir(args);
+  CHECK(result.success);
 }
 
 TEST(tool_file_info_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return;
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~");
 
-    ToolResult result = tool_file_info(args);
-    CHECK(result.success);
-    CHECK(result.content.find("exists: true") != std::string::npos);
+  ToolResult result = tool_file_info(args);
+  CHECK(result.success);
+  CHECK(result.content.find("exists: true") != std::string::npos);
 }
 
 TEST(tool_create_dir_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return;
 
-    std::string real_path = std::string(home) + "/ccl_tilde_dir_test";
-    fs::remove_all(real_path);
+  std::string real_path = std::string(home) + "/ccl_tilde_dir_test";
+  fs::remove_all(real_path);
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~/ccl_tilde_dir_test");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~/ccl_tilde_dir_test");
 
-    ToolResult result = tool_create_dir(args);
-    CHECK(result.success);
-    CHECK(fs::exists(real_path));
+  ToolResult result = tool_create_dir(args);
+  CHECK(result.success);
+  CHECK(fs::exists(real_path));
 
-    fs::remove_all(real_path);
+  fs::remove_all(real_path);
 }
 
 TEST(tool_edit_file_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return;
 
-    std::string real_path = std::string(home) + "/ccl_tilde_edit_test.txt";
-    { std::ofstream f(real_path); f << "original content\n"; }
+  std::string real_path = std::string(home) + "/ccl_tilde_edit_test.txt";
+  {
+    std::ofstream f(real_path);
+    f << "original content\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~/ccl_tilde_edit_test.txt");
-    args["old_str"].data.emplace<std::string>("original");
-    args["new_str"].data.emplace<std::string>("replaced");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~/ccl_tilde_edit_test.txt");
+  args["old_str"].data.emplace<std::string>("original");
+  args["new_str"].data.emplace<std::string>("replaced");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_edit_file(args);
+  CHECK(result.success);
 
-    std::ifstream f(real_path);
-    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    CHECK(content.find("replaced") != std::string::npos);
+  std::ifstream f(real_path);
+  std::string content((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+  CHECK(content.find("replaced") != std::string::npos);
 
-    fs::remove(real_path);
+  fs::remove(real_path);
 }
 
 TEST(tool_delete_file_expands_tilde) {
-    const char* home = std::getenv("HOME");
-    if (!home) return;
+  const char *home = std::getenv("HOME");
+  if (!home)
+    return;
 
-    std::string real_path = std::string(home) + "/ccl_tilde_delete_test.txt";
-    { std::ofstream f(real_path); f << "delete me"; }
+  std::string real_path = std::string(home) + "/ccl_tilde_delete_test.txt";
+  {
+    std::ofstream f(real_path);
+    f << "delete me";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>("~/ccl_tilde_delete_test.txt");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>("~/ccl_tilde_delete_test.txt");
 
-    ToolResult result = tool_delete_file(args);
-    CHECK(result.success);
-    CHECK(!fs::exists(real_path));
+  ToolResult result = tool_delete_file(args);
+  CHECK(result.success);
+  CHECK(!fs::exists(real_path));
 }
 
 TEST(tool_run_shell_cwd_sets_working_dir) {
-    TmpDir tmp;
+  TmpDir tmp;
 
-    ToolArgs args;
-    args["command"].data.emplace<std::string>("pwd");
-    args["cwd"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["command"].data.emplace<std::string>("pwd");
+  args["cwd"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_run_shell(args);
-    CHECK(result.success);
-    // Output should contain the temp dir path (pwd resolves symlinks, so check suffix)
-    CHECK(result.content.find(tmp.path.substr(tmp.path.rfind('/') + 1)) != std::string::npos
-          || result.content.find(tmp.path) != std::string::npos);
+  ToolResult result = tool_run_shell(args);
+  CHECK(result.success);
+  // Output should contain the temp dir path (pwd resolves symlinks, so check
+  // suffix)
+  CHECK(result.content.find(tmp.path.substr(tmp.path.rfind('/') + 1)) !=
+            std::string::npos ||
+        result.content.find(tmp.path) != std::string::npos);
 }
 
 // ============================================================================
@@ -682,17 +762,17 @@ TEST(tool_run_shell_cwd_sets_working_dir) {
 // ============================================================================
 
 TEST(tool_result_to_context_string_ok) {
-    ToolResult result = ToolResult::ok("file contents here");
-    std::string s = result.to_context_string();
-    CHECK(s.find("[ERROR]") == std::string::npos);
-    CHECK_EQ(s, std::string("file contents here"));
+  ToolResult result = ToolResult::ok("file contents here");
+  std::string s = result.to_context_string();
+  CHECK(s.find("[ERROR]") == std::string::npos);
+  CHECK_EQ(s, std::string("file contents here"));
 }
 
 TEST(tool_result_to_context_string_fail) {
-    ToolResult result = ToolResult::fail("something went wrong");
-    std::string s = result.to_context_string();
-    CHECK(s.find("[ERROR]") != std::string::npos);
-    CHECK(s.find("something went wrong") != std::string::npos);
+  ToolResult result = ToolResult::fail("something went wrong");
+  std::string s = result.to_context_string();
+  CHECK(s.find("[ERROR]") != std::string::npos);
+  CHECK(s.find("something went wrong") != std::string::npos);
 }
 
 // ============================================================================
@@ -700,232 +780,251 @@ TEST(tool_result_to_context_string_fail) {
 // ============================================================================
 
 TEST(tool_search_files_invalid_regex) {
-    TmpDir tmp;
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"].data.emplace<std::string>("[unclosed");
+  TmpDir tmp;
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"].data.emplace<std::string>("[unclosed");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("invalid pattern") != std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("invalid pattern") != std::string::npos);
 }
 
 TEST(tool_search_files_output_truncated) {
-    TmpDir tmp;
-    std::string filepath = tmp.path + "/bigfile.txt";
-    {
-        std::ofstream f(filepath);
-        // 100 lines × ~90 chars each ≈ 9000 bytes — exceeds the 8000-byte cap
-        for (int i = 0; i < 100; ++i) {
-            f << "FINDME " << std::string(80, 'x') << " line" << i << "\n";
-        }
+  TmpDir tmp;
+  std::string filepath = tmp.path + "/bigfile.txt";
+  {
+    std::ofstream f(filepath);
+    // 100 lines × ~90 chars each ≈ 9000 bytes — exceeds the 8000-byte cap
+    for (int i = 0; i < 100; ++i) {
+      f << "FINDME " << std::string(80, 'x') << " line" << i << "\n";
     }
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"].data.emplace<std::string>("FINDME");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"].data.emplace<std::string>("FINDME");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(result.content.find("truncated") != std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(result.content.find("truncated") != std::string::npos);
 }
 
 TEST(tool_edit_file_multiline_old_str) {
-    TmpDir tmp;
-    std::string path = tmp.path + "/multi.txt";
-    {
-        std::ofstream f(path);
-        f << "line1\nline2\nline3\n";
-    }
+  TmpDir tmp;
+  std::string path = tmp.path + "/multi.txt";
+  {
+    std::ofstream f(path);
+    f << "line1\nline2\nline3\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(path);
-    args["old_str"].data.emplace<std::string>("line1\nline2");
-    args["new_str"].data.emplace<std::string>("REPLACED");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(path);
+  args["old_str"].data.emplace<std::string>("line1\nline2");
+  args["new_str"].data.emplace<std::string>("REPLACED");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_edit_file(args);
+  CHECK(result.success);
 
-    std::ifstream f(path);
-    std::string content((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
-    CHECK(content.find("REPLACED") != std::string::npos);
-    CHECK(content.find("line1") == std::string::npos);
-    CHECK(content.find("line3") != std::string::npos);
+  std::ifstream f(path);
+  std::string content((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+  CHECK(content.find("REPLACED") != std::string::npos);
+  CHECK(content.find("line1") == std::string::npos);
+  CHECK(content.find("line3") != std::string::npos);
 }
 
 TEST(tool_edit_file_empty_old_str_ambiguous) {
-    TmpDir tmp;
-    std::string path = tmp.path + "/file.txt";
-    {
-        std::ofstream f(path);
-        f << "hello world\n";
-    }
+  TmpDir tmp;
+  std::string path = tmp.path + "/file.txt";
+  {
+    std::ofstream f(path);
+    f << "hello world\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(path);
-    args["old_str"].data.emplace<std::string>("");
-    args["new_str"].data.emplace<std::string>("X");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(path);
+  args["old_str"].data.emplace<std::string>("");
+  args["new_str"].data.emplace<std::string>("X");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("ambiguous") != std::string::npos);
+  ToolResult result = tool_edit_file(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("ambiguous") != std::string::npos);
 }
 
 TEST(tool_edit_file_new_str_equals_old_str) {
-    TmpDir tmp;
-    std::string path = tmp.path + "/file.txt";
-    {
-        std::ofstream f(path);
-        f << "unchanged content\n";
-    }
+  TmpDir tmp;
+  std::string path = tmp.path + "/file.txt";
+  {
+    std::ofstream f(path);
+    f << "unchanged content\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(path);
-    args["old_str"].data.emplace<std::string>("unchanged content");
-    args["new_str"].data.emplace<std::string>("unchanged content");
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(path);
+  args["old_str"].data.emplace<std::string>("unchanged content");
+  args["new_str"].data.emplace<std::string>("unchanged content");
 
-    ToolResult result = tool_edit_file(args);
-    CHECK(result.success);
+  ToolResult result = tool_edit_file(args);
+  CHECK(result.success);
 
-    std::ifstream f(path);
-    std::string content((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
-    CHECK(content.find("unchanged content") != std::string::npos);
+  std::ifstream f(path);
+  std::string content((std::istreambuf_iterator<char>(f)),
+                      std::istreambuf_iterator<char>());
+  CHECK(content.find("unchanged content") != std::string::npos);
 }
 
 TEST(tool_create_dir_file_exists_error) {
-    TmpDir tmp;
-    std::string path = tmp.path + "/notadir";
-    {
-        std::ofstream f(path);
-        f << "I am a file\n";
-    }
+  TmpDir tmp;
+  std::string path = tmp.path + "/notadir";
+  {
+    std::ofstream f(path);
+    f << "I am a file\n";
+  }
 
-    ToolArgs args;
-    args["path"].data.emplace<std::string>(path);
-    ToolResult result = tool_create_dir(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("not a directory") != std::string::npos);
+  ToolArgs args;
+  args["path"].data.emplace<std::string>(path);
+  ToolResult result = tool_create_dir(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("not a directory") != std::string::npos);
 }
 
 TEST(tool_run_shell_inherits_env) {
-    setenv("CCL_TEST_SENTINEL", "hello_sentinel_456", 1);
+  setenv("CCL_TEST_SENTINEL", "hello_sentinel_456", 1);
 
-    ToolArgs args;
-    args["command"].data.emplace<std::string>("echo $CCL_TEST_SENTINEL");
-    ToolResult result = tool_run_shell(args);
+  ToolArgs args;
+  args["command"].data.emplace<std::string>("echo $CCL_TEST_SENTINEL");
+  ToolResult result = tool_run_shell(args);
 
-    unsetenv("CCL_TEST_SENTINEL");
+  unsetenv("CCL_TEST_SENTINEL");
 
-    CHECK(result.success);
-    CHECK(result.content.find("hello_sentinel_456") != std::string::npos);
+  CHECK(result.success);
+  CHECK(result.content.find("hello_sentinel_456") != std::string::npos);
 }
 
 // ============================================================================
 // read_file offset/limit tests
 // ============================================================================
 
-static std::string make_5line_file(const std::string& dir) {
-    std::string path = dir + "/lines.txt";
-    std::ofstream f(path);
-    f << "line1\nline2\nline3\nline4\nline5\n";
-    return path;
+static std::string make_5line_file(const std::string &dir) {
+  std::string path = dir + "/lines.txt";
+  std::ofstream f(path);
+  f << "line1\nline2\nline3\nline4\nline5\n";
+  return path;
 }
 
 TEST(tool_read_file_offset_reads_from_line) {
-    TmpDir tmp;
-    std::string path = make_5line_file(tmp.path);
+  TmpDir tmp;
+  std::string path = make_5line_file(tmp.path);
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
-    args["offset"] = JsonValue(); args["offset"].data.emplace<double>(3);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(path);
+  args["offset"] = JsonValue();
+  args["offset"].data.emplace<double>(3);
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK(result.content.find("line1") == std::string::npos);
-    CHECK(result.content.find("line3") != std::string::npos);
-    CHECK(result.content.find("line5") != std::string::npos);
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK(result.content.find("line1") == std::string::npos);
+  CHECK(result.content.find("line3") != std::string::npos);
+  CHECK(result.content.find("line5") != std::string::npos);
 }
 
 TEST(tool_read_file_limit_reads_n_lines) {
-    TmpDir tmp;
-    std::string path = make_5line_file(tmp.path);
+  TmpDir tmp;
+  std::string path = make_5line_file(tmp.path);
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
-    args["limit"] = JsonValue(); args["limit"].data.emplace<double>(2);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(path);
+  args["limit"] = JsonValue();
+  args["limit"].data.emplace<double>(2);
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK(result.content.find("line1") != std::string::npos);
-    CHECK(result.content.find("line2") != std::string::npos);
-    CHECK(result.content.find("line3") == std::string::npos);
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK(result.content.find("line1") != std::string::npos);
+  CHECK(result.content.find("line2") != std::string::npos);
+  CHECK(result.content.find("line3") == std::string::npos);
 }
 
 TEST(tool_read_file_offset_and_limit) {
-    TmpDir tmp;
-    std::string path = make_5line_file(tmp.path);
+  TmpDir tmp;
+  std::string path = make_5line_file(tmp.path);
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
-    args["offset"] = JsonValue(); args["offset"].data.emplace<double>(2);
-    args["limit"] = JsonValue(); args["limit"].data.emplace<double>(2);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(path);
+  args["offset"] = JsonValue();
+  args["offset"].data.emplace<double>(2);
+  args["limit"] = JsonValue();
+  args["limit"].data.emplace<double>(2);
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK(result.content.find("line1") == std::string::npos);
-    CHECK(result.content.find("line2") != std::string::npos);
-    CHECK(result.content.find("line3") != std::string::npos);
-    CHECK(result.content.find("line4") == std::string::npos);
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK(result.content.find("line1") == std::string::npos);
+  CHECK(result.content.find("line2") != std::string::npos);
+  CHECK(result.content.find("line3") != std::string::npos);
+  CHECK(result.content.find("line4") == std::string::npos);
 }
 
 TEST(tool_read_file_offset_beyond_eof_returns_empty) {
-    TmpDir tmp;
-    std::string path = tmp.path + "/short.txt";
-    { std::ofstream f(path); f << "a\nb\nc\n"; }
+  TmpDir tmp;
+  std::string path = tmp.path + "/short.txt";
+  {
+    std::ofstream f(path);
+    f << "a\nb\nc\n";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
-    args["offset"] = JsonValue(); args["offset"].data.emplace<double>(10);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(path);
+  args["offset"] = JsonValue();
+  args["offset"].data.emplace<double>(10);
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK(result.content.find("past end of file") != std::string::npos);
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK(result.content.find("past end of file") != std::string::npos);
 }
 
 TEST(tool_read_file_limit_larger_than_file_returns_all) {
-    TmpDir tmp;
-    std::string path = tmp.path + "/short.txt";
-    { std::ofstream f(path); f << "a\nb\nc\n"; }
+  TmpDir tmp;
+  std::string path = tmp.path + "/short.txt";
+  {
+    std::ofstream f(path);
+    f << "a\nb\nc\n";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(path);
-    args["limit"] = JsonValue(); args["limit"].data.emplace<double>(100);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(path);
+  args["limit"] = JsonValue();
+  args["limit"].data.emplace<double>(100);
 
-    ToolResult result = tool_read_file(args);
-    CHECK(result.success);
-    CHECK(result.content.find("a") != std::string::npos);
-    CHECK(result.content.find("c") != std::string::npos);
+  ToolResult result = tool_read_file(args);
+  CHECK(result.success);
+  CHECK(result.content.find("a") != std::string::npos);
+  CHECK(result.content.find("c") != std::string::npos);
 }
 
 TEST(tool_read_file_offset_1_same_as_no_offset) {
-    TmpDir tmp;
-    std::string path = make_5line_file(tmp.path);
+  TmpDir tmp;
+  std::string path = make_5line_file(tmp.path);
 
-    ToolArgs no_offset_args;
-    no_offset_args["path"] = JsonValue();
-    no_offset_args["path"].data.emplace<std::string>(path);
-    ToolResult no_offset = tool_read_file(no_offset_args);
+  ToolArgs no_offset_args;
+  no_offset_args["path"] = JsonValue();
+  no_offset_args["path"].data.emplace<std::string>(path);
+  ToolResult no_offset = tool_read_file(no_offset_args);
 
-    ToolArgs offset1_args;
-    offset1_args["path"] = JsonValue(); offset1_args["path"].data.emplace<std::string>(path);
-    offset1_args["offset"] = JsonValue(); offset1_args["offset"].data.emplace<double>(1);
-    ToolResult with_offset = tool_read_file(offset1_args);
+  ToolArgs offset1_args;
+  offset1_args["path"] = JsonValue();
+  offset1_args["path"].data.emplace<std::string>(path);
+  offset1_args["offset"] = JsonValue();
+  offset1_args["offset"].data.emplace<double>(1);
+  ToolResult with_offset = tool_read_file(offset1_args);
 
-    CHECK(no_offset.success);
-    CHECK(with_offset.success);
-    CHECK_EQ(no_offset.content, with_offset.content);
+  CHECK(no_offset.success);
+  CHECK(with_offset.success);
+  CHECK_EQ(no_offset.content, with_offset.content);
 }
 
 // ============================================================================
@@ -933,83 +1032,105 @@ TEST(tool_read_file_offset_1_same_as_no_offset) {
 // ============================================================================
 
 TEST(tool_delete_dir_empty_dir) {
-    TmpDir tmp;
-    std::string dir = tmp.path + "/toremove";
-    fs::create_directories(dir);
+  TmpDir tmp;
+  std::string dir = tmp.path + "/toremove";
+  fs::create_directories(dir);
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir);
 
-    ToolResult result = tool_delete_dir(args);
-    CHECK(result.success);
-    CHECK(!fs::exists(dir));
+  ToolResult result = tool_delete_dir(args);
+  CHECK(result.success);
+  CHECK(!fs::exists(dir));
 }
 
 TEST(tool_delete_dir_nonempty_requires_recursive) {
-    TmpDir tmp;
-    std::string dir = tmp.path + "/toremove";
-    fs::create_directories(dir);
-    { std::ofstream f(dir + "/file.txt"); f << "content"; }
+  TmpDir tmp;
+  std::string dir = tmp.path + "/toremove";
+  fs::create_directories(dir);
+  {
+    std::ofstream f(dir + "/file.txt");
+    f << "content";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir);
 
-    ToolResult result = tool_delete_dir(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("not empty") != std::string::npos);
-    CHECK(fs::exists(dir));
+  ToolResult result = tool_delete_dir(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("not empty") != std::string::npos);
+  CHECK(fs::exists(dir));
 }
 
 TEST(tool_delete_dir_recursive_deletes_all_contents) {
-    TmpDir tmp;
-    std::string dir = tmp.path + "/toremove";
-    fs::create_directories(dir + "/sub");
-    { std::ofstream f(dir + "/file.txt"); f << "data"; }
-    { std::ofstream f(dir + "/sub/nested.txt"); f << "data"; }
+  TmpDir tmp;
+  std::string dir = tmp.path + "/toremove";
+  fs::create_directories(dir + "/sub");
+  {
+    std::ofstream f(dir + "/file.txt");
+    f << "data";
+  }
+  {
+    std::ofstream f(dir + "/sub/nested.txt");
+    f << "data";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
-    args["recursive"] = JsonValue(); args["recursive"].data.emplace<bool>(true);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir);
+  args["recursive"] = JsonValue();
+  args["recursive"].data.emplace<bool>(true);
 
-    ToolResult result = tool_delete_dir(args);
-    CHECK(result.success);
-    CHECK(!fs::exists(dir));
+  ToolResult result = tool_delete_dir(args);
+  CHECK(result.success);
+  CHECK(!fs::exists(dir));
 }
 
 TEST(tool_delete_dir_missing_path_fails) {
-    ToolArgs args;
-    args["path"] = JsonValue();
-    args["path"].data.emplace<std::string>("/nonexistent/path/xyz");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>("/nonexistent/path/xyz");
 
-    ToolResult result = tool_delete_dir(args);
-    CHECK(!result.success);
+  ToolResult result = tool_delete_dir(args);
+  CHECK(!result.success);
 }
 
 TEST(tool_delete_dir_on_file_fails) {
-    TmpDir tmp;
-    std::string file = tmp.path + "/afile.txt";
-    { std::ofstream f(file); f << "hello"; }
+  TmpDir tmp;
+  std::string file = tmp.path + "/afile.txt";
+  {
+    std::ofstream f(file);
+    f << "hello";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(file);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(file);
 
-    ToolResult result = tool_delete_dir(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("not a directory") != std::string::npos);
+  ToolResult result = tool_delete_dir(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("not a directory") != std::string::npos);
 }
 
 TEST(tool_delete_dir_explicit_recursive_false_nonempty_fails) {
-    TmpDir tmp;
-    std::string dir = tmp.path + "/toremove";
-    fs::create_directories(dir);
-    { std::ofstream f(dir + "/file.txt"); f << "content"; }
+  TmpDir tmp;
+  std::string dir = tmp.path + "/toremove";
+  fs::create_directories(dir);
+  {
+    std::ofstream f(dir + "/file.txt");
+    f << "content";
+  }
 
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(dir);
-    args["recursive"] = JsonValue(); args["recursive"].data.emplace<bool>(false);
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir);
+  args["recursive"] = JsonValue();
+  args["recursive"].data.emplace<bool>(false);
 
-    ToolResult result = tool_delete_dir(args);
-    CHECK(!result.success);
+  ToolResult result = tool_delete_dir(args);
+  CHECK(!result.success);
 }
 
 // ============================================================================
@@ -1017,127 +1138,177 @@ TEST(tool_delete_dir_explicit_recursive_false_nonempty_fails) {
 // ============================================================================
 
 TEST(tool_find_symbol_basic_match) {
-    TmpDir tmp;
-    std::string file = tmp.path + "/code.cpp";
-    { std::ofstream f(file); f << "void myFunction() {}\n"; }
+  TmpDir tmp;
+  std::string file = tmp.path + "/code.cpp";
+  {
+    std::ofstream f(file);
+    f << "void myFunction() {}\n";
+  }
 
-    ToolArgs args;
-    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunction");
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("myFunction");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("myFunction") != std::string::npos);
-    CHECK(result.content.find("code.cpp") != std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("myFunction") != std::string::npos);
+  CHECK(result.content.find("code.cpp") != std::string::npos);
 }
 
 TEST(tool_find_symbol_no_match_returns_message) {
-    TmpDir tmp;
-    std::string file = tmp.path + "/code.cpp";
-    { std::ofstream f(file); f << "void otherFunc() {}\n"; }
+  TmpDir tmp;
+  std::string file = tmp.path + "/code.cpp";
+  {
+    std::ofstream f(file);
+    f << "void otherFunc() {}\n";
+  }
 
-    ToolArgs args;
-    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("nonexistent_xyz");
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("nonexistent_xyz");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("no matches") != std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("no matches") != std::string::npos);
 }
 
 TEST(tool_find_symbol_word_boundary_no_partial) {
-    TmpDir tmp;
-    std::string file = tmp.path + "/code.cpp";
-    { std::ofstream f(file); f << "void myFunctionHelper() {}\n"; }
+  TmpDir tmp;
+  std::string file = tmp.path + "/code.cpp";
+  {
+    std::ofstream f(file);
+    f << "void myFunctionHelper() {}\n";
+  }
 
-    ToolArgs args;
-    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunction");
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("myFunction");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("no matches") != std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("no matches") != std::string::npos);
 }
 
 TEST(tool_find_symbol_language_filter_matches_cpp) {
-    TmpDir tmp;
-    std::string cpp_file = tmp.path + "/code.cpp";
-    std::string py_file  = tmp.path + "/code.py";
-    { std::ofstream f(cpp_file); f << "void myFunc() {}\n"; }
-    { std::ofstream f(py_file);  f << "def myFunc(): pass\n"; }
+  TmpDir tmp;
+  std::string cpp_file = tmp.path + "/code.cpp";
+  std::string py_file = tmp.path + "/code.py";
+  {
+    std::ofstream f(cpp_file);
+    f << "void myFunc() {}\n";
+  }
+  {
+    std::ofstream f(py_file);
+    f << "def myFunc(): pass\n";
+  }
 
-    ToolArgs args;
-    args["symbol"]   = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
-    args["language"] = JsonValue(); args["language"].data.emplace<std::string>("cpp");
-    args["path"]     = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("myFunc");
+  args["language"] = JsonValue();
+  args["language"].data.emplace<std::string>("cpp");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("code.cpp") != std::string::npos);
-    CHECK(result.content.find("code.py") == std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("code.cpp") != std::string::npos);
+  CHECK(result.content.find("code.py") == std::string::npos);
 }
 
 TEST(tool_find_symbol_language_filter_excludes_cpp) {
-    TmpDir tmp;
-    std::string cpp_file = tmp.path + "/code.cpp";
-    std::string py_file  = tmp.path + "/code.py";
-    { std::ofstream f(cpp_file); f << "void myFunc() {}\n"; }
-    { std::ofstream f(py_file);  f << "def myFunc(): pass\n"; }
+  TmpDir tmp;
+  std::string cpp_file = tmp.path + "/code.cpp";
+  std::string py_file = tmp.path + "/code.py";
+  {
+    std::ofstream f(cpp_file);
+    f << "void myFunc() {}\n";
+  }
+  {
+    std::ofstream f(py_file);
+    f << "def myFunc(): pass\n";
+  }
 
-    ToolArgs args;
-    args["symbol"]   = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
-    args["language"] = JsonValue(); args["language"].data.emplace<std::string>("python");
-    args["path"]     = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("myFunc");
+  args["language"] = JsonValue();
+  args["language"].data.emplace<std::string>("python");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("code.py") != std::string::npos);
-    CHECK(result.content.find("code.cpp") == std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("code.py") != std::string::npos);
+  CHECK(result.content.find("code.cpp") == std::string::npos);
 }
 
 TEST(tool_find_symbol_multiple_files) {
-    TmpDir tmp;
-    std::string file_a = tmp.path + "/a.cpp";
-    std::string file_b = tmp.path + "/b.cpp";
-    { std::ofstream f(file_a); f << "void myFunc() {}\n"; }
-    { std::ofstream f(file_b); f << "void myFunc() {}\n"; }
+  TmpDir tmp;
+  std::string file_a = tmp.path + "/a.cpp";
+  std::string file_b = tmp.path + "/b.cpp";
+  {
+    std::ofstream f(file_a);
+    f << "void myFunc() {}\n";
+  }
+  {
+    std::ofstream f(file_b);
+    f << "void myFunc() {}\n";
+  }
 
-    ToolArgs args;
-    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
-    args["path"]   = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("myFunc");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("a.cpp") != std::string::npos);
-    CHECK(result.content.find("b.cpp") != std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("a.cpp") != std::string::npos);
+  CHECK(result.content.find("b.cpp") != std::string::npos);
 }
 
 TEST(tool_find_symbol_missing_symbol_arg_fails) {
-    ToolArgs args;
-    args["path"] = JsonValue(); args["path"].data.emplace<std::string>(".");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(".");
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("symbol") != std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("symbol") != std::string::npos);
 }
 
 TEST(tool_find_symbol_path_restricts_search) {
-    TmpDir tmp;
-    std::string dir_a = tmp.path + "/a";
-    std::string dir_b = tmp.path + "/b";
-    fs::create_directories(dir_a);
-    fs::create_directories(dir_b);
-    { std::ofstream f(dir_a + "/code.cpp"); f << "void myFunc() {}\n"; }
-    { std::ofstream f(dir_b + "/code.cpp"); f << "void myFunc() {}\n"; }
+  TmpDir tmp;
+  std::string dir_a = tmp.path + "/a";
+  std::string dir_b = tmp.path + "/b";
+  fs::create_directories(dir_a);
+  fs::create_directories(dir_b);
+  {
+    std::ofstream f(dir_a + "/code.cpp");
+    f << "void myFunc() {}\n";
+  }
+  {
+    std::ofstream f(dir_b + "/code.cpp");
+    f << "void myFunc() {}\n";
+  }
 
-    ToolArgs args;
-    args["symbol"] = JsonValue(); args["symbol"].data.emplace<std::string>("myFunc");
-    args["path"]   = JsonValue(); args["path"].data.emplace<std::string>(dir_a);
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("myFunc");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(dir_a);
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find(dir_a) != std::string::npos);
-    CHECK(result.content.find(dir_b) == std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find(dir_a) != std::string::npos);
+  CHECK(result.content.find(dir_b) == std::string::npos);
 }
 
 // ============================================================================
@@ -1145,83 +1316,110 @@ TEST(tool_find_symbol_path_restricts_search) {
 // ============================================================================
 
 TEST(tool_search_files_truncation) {
-    TmpDir tmp;
-    // Write a file with many matching lines to push output past 8000 bytes
-    std::ofstream f(tmp.path + "/big.txt");
-    for (int i = 0; i < 500; ++i)
-        f << "match_this_pattern line " << i << " padding_padding_padding_padding\n";
-    f.close();
+  TmpDir tmp;
+  // Write a file with many matching lines to push output past 8000 bytes
+  std::ofstream f(tmp.path + "/big.txt");
+  for (int i = 0; i < 500; ++i)
+    f << "match_this_pattern line " << i
+      << " padding_padding_padding_padding\n";
+  f.close();
 
-    ToolArgs args;
-    args["path"]    = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
-    args["pattern"] = JsonValue(); args["pattern"].data.emplace<std::string>("match_this_pattern");
+  ToolArgs args;
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["pattern"] = JsonValue();
+  args["pattern"].data.emplace<std::string>("match_this_pattern");
 
-    ToolResult result = tool_search_files(args);
-    CHECK(result.success);
-    CHECK(!result.content.empty());
-    CHECK(result.content.find("truncated") != std::string::npos);
+  ToolResult result = tool_search_files(args);
+  CHECK(result.success);
+  CHECK(!result.content.empty());
+  CHECK(result.content.find("truncated") != std::string::npos);
 }
 
 TEST(tool_find_symbol_cpp_searches_headers_and_sources) {
-    TmpDir tmp;
-    // Create a .cpp and a .h file each containing the symbol
-    { std::ofstream f(tmp.path + "/code.cpp"); f << "void targetFunc() {}\n"; }
-    { std::ofstream f(tmp.path + "/code.h");   f << "void targetFunc();\n"; }
-    { std::ofstream f(tmp.path + "code.py");   f << "def targetFunc(): pass\n"; }
+  TmpDir tmp;
+  // Create a .cpp and a .h file each containing the symbol
+  {
+    std::ofstream f(tmp.path + "/code.cpp");
+    f << "void targetFunc() {}\n";
+  }
+  {
+    std::ofstream f(tmp.path + "/code.h");
+    f << "void targetFunc();\n";
+  }
+  {
+    std::ofstream f(tmp.path + "code.py");
+    f << "def targetFunc(): pass\n";
+  }
 
-    ToolArgs args;
-    args["symbol"]   = JsonValue(); args["symbol"].data.emplace<std::string>("targetFunc");
-    args["path"]     = JsonValue(); args["path"].data.emplace<std::string>(tmp.path);
-    args["language"] = JsonValue(); args["language"].data.emplace<std::string>("c++");
+  ToolArgs args;
+  args["symbol"] = JsonValue();
+  args["symbol"].data.emplace<std::string>("targetFunc");
+  args["path"] = JsonValue();
+  args["path"].data.emplace<std::string>(tmp.path);
+  args["language"] = JsonValue();
+  args["language"].data.emplace<std::string>("c++");
 
-    ToolResult result = tool_find_symbol(args);
-    CHECK(result.success);
-    CHECK(result.content.find("code.cpp") != std::string::npos);
-    CHECK(result.content.find("code.h")   != std::string::npos);
-    // Python file should not appear (wrong language filter)
-    CHECK(result.content.find(".py") == std::string::npos);
+  ToolResult result = tool_find_symbol(args);
+  CHECK(result.success);
+  CHECK(result.content.find("code.cpp") != std::string::npos);
+  CHECK(result.content.find("code.h") != std::string::npos);
+  // Python file should not appear (wrong language filter)
+  CHECK(result.content.find(".py") == std::string::npos);
 }
 
 TEST(tool_run_shell_nonzero_exit_code_in_error) {
-    ToolArgs args;
-    args["command"] = JsonValue();
-    args["command"].data.emplace<std::string>("bash -c 'exit 42'");
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("bash -c 'exit 42'");
 
-    ToolResult result = tool_run_shell(args);
-    CHECK(!result.success);
-    CHECK(result.error.find("42") != std::string::npos);
+  ToolResult result = tool_run_shell(args);
+  CHECK(!result.success);
+  CHECK(result.error.find("42") != std::string::npos);
 }
 
 TEST(tool_spawn_agent_missing_prompt_fails) {
-    ToolArgs args;  // no "prompt" key
-    ToolResult r = tool_spawn_agent(args);
-    CHECK(!r.success);
-    CHECK(r.error.find("prompt") != std::string::npos);
+  ToolArgs args; // no "prompt" key
+  ToolResult r = tool_spawn_agent(args);
+  CHECK(!r.success);
+  CHECK(r.error.find("prompt") != std::string::npos);
 }
 
 TEST(tool_run_shell_bad_cwd_fails) {
-    ToolArgs args;
-    args["command"] = JsonValue();
-    args["command"].data.emplace<std::string>("true");
-    args["cwd"] = JsonValue();
-    args["cwd"].data.emplace<std::string>("/nonexistent/path/xyz123abc");
-    ToolResult r = tool_run_shell(args);
-    CHECK(!r.success);  // child exits 126 on chdir failure
+  ToolArgs args;
+  args["command"] = JsonValue();
+  args["command"].data.emplace<std::string>("true");
+  args["cwd"] = JsonValue();
+  args["cwd"].data.emplace<std::string>("/nonexistent/path/xyz123abc");
+  ToolResult r = tool_run_shell(args);
+  CHECK(!r.success); // child exits 126 on chdir failure
 }
 
 TEST(make_registry_agent_native_flags_set) {
-    Config cfg = Config::defaults();
-    int called = 0;
-    AgentHandlers handlers = {
-        {"present_plan", [&](const ToolArgs&) { ++called; return ToolResult::ok(""); }},
-        {"print",        [&](const ToolArgs&) { ++called; return ToolResult::ok(""); }},
-        {"ask_user",     [&](const ToolArgs&) { ++called; return ToolResult::ok(""); }},
-    };
-    ToolRegistry reg = make_registry(AgentMode::Plan, cfg, false, handlers);
+  Config cfg = Config::defaults();
+  int called = 0;
+  AgentHandlers handlers = {
+      {"present_plan",
+       [&](const ToolArgs &) {
+         ++called;
+         return ToolResult::ok("");
+       }},
+      {"print",
+       [&](const ToolArgs &) {
+         ++called;
+         return ToolResult::ok("");
+       }},
+      {"ask_user",
+       [&](const ToolArgs &) {
+         ++called;
+         return ToolResult::ok("");
+       }},
+  };
+  ToolRegistry reg = make_registry(AgentMode::Plan, cfg, false, handlers);
 
-    for (const char* name : {"present_plan", "print", "ask_user"}) {
-        auto t = reg.find(name);
-        CHECK(t.has_value());
-        CHECK(t.value()->agent_native);
-    }
+  for (const char *name : {"present_plan", "print", "ask_user"}) {
+    auto t = reg.find(name);
+    CHECK(t.has_value());
+    CHECK(t.value()->agent_native);
+  }
 }
