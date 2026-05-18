@@ -278,8 +278,11 @@ Config Config::load(const std::string &explicit_path) {
     if (fs::exists(mcp_path)) {
       try {
         load_mcp_config(mcp_path, cfg);
+      } catch (const std::exception &e) {
+        std::cerr << "warning: failed to load MCP config " << mcp_path << ": "
+                  << e.what() << "\n";
       } catch (...) {
-        // Fail silently
+        std::cerr << "warning: failed to load MCP config " << mcp_path << "\n";
       }
     }
   }
@@ -296,7 +299,11 @@ void Config::reload_mcp_servers() {
     return;
   try {
     load_mcp_config(path, *this);
+  } catch (const std::exception &e) {
+    std::cerr << "warning: failed to reload MCP config " << path << ": "
+              << e.what() << "\n";
   } catch (...) {
+    std::cerr << "warning: failed to reload MCP config " << path << "\n";
   }
 }
 
@@ -314,7 +321,8 @@ void Config::apply_env_overrides(Config &cfg) {
     try {
       cfg.timeout_sec = std::stoi(timeout);
     } catch (...) {
-      // Ignore invalid timeout
+      std::cerr << "warning: CCL_TIMEOUT=" << timeout
+                << " is not a valid integer; using default\n";
     }
   }
 
