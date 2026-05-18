@@ -49,7 +49,7 @@ struct ToolParam {
   std::string name;
   std::string type; // "string" | "integer" | "boolean"
   std::string description;
-  bool required;
+  bool required = false;
 };
 
 enum class Permission { Read, Write, Delete, Shell };

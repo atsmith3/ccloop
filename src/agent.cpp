@@ -35,9 +35,9 @@ static std::string trim(const std::string &s) {
 }
 
 Agent::Agent(Config config, Ui &ui, AgentMode initial_mode)
-    : config_(config), mode_(initial_mode),
-      context_(config.token_limit, config.compaction_keep_recent),
-      connector_(make_connector(config)), ui_(ui) {
+    : config_(std::move(config)), mode_(initial_mode),
+      context_(config_.token_limit, config_.compaction_keep_recent),
+      connector_(make_connector(config_)), ui_(ui) {
   rebuild_registry();
   build_slash_commands();
 }
@@ -288,8 +288,7 @@ void Agent::loop() {
     if (!pending_execution_.empty()) {
       input = std::move(pending_execution_);
       pending_execution_.clear();
-      is_synthetic =
-          true; // fix #11: skip slash command handling for synthetic input
+      is_synthetic = true; // avoids slash-command dispatch on injected prompts
     } else {
       input = ui_.wait_for_input();
     }
