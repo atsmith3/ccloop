@@ -1,44 +1,64 @@
-#include "harness.h"
-#include "../src/mcp_client.h"
+// Copyright 2026 Andrew Smith
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "../src/config.h"
 #include "../src/json.h"
+#include "../src/mcp_client.h"
+#include "harness.h"
 #include <algorithm>
 #include <atomic>
+#include <signal.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
-#include <sys/wait.h>
-#include <signal.h>
 
 // ============================================================================
 // build_rpc
 // ============================================================================
 
 TEST(mcp_build_rpc_no_params) {
-    std::string rpc = McpClient::build_rpc(1, "tools/list", JsonValue{});
-    JsonValue v = parse_json(rpc);
-    CHECK_EQ(v.get("jsonrpc")->as_string(), std::string("2.0"));
-    CHECK_EQ((int)v.get("id")->as_number(), 1);
-    CHECK_EQ(v.get("method")->as_string(), std::string("tools/list"));
-    CHECK(!v.get("params").has_value());
+  std::string rpc = McpClient::build_rpc(1, "tools/list", JsonValue{});
+  JsonValue v = parse_json(rpc);
+  CHECK_EQ(v.get("jsonrpc")->as_string(), std::string("2.0"));
+  CHECK_EQ((int)v.get("id")->as_number(), 1);
+  CHECK_EQ(v.get("method")->as_string(), std::string("tools/list"));
+  CHECK(!v.get("params").has_value());
 }
 
 TEST(mcp_build_rpc_with_params) {
-    JsonValue params = parse_json(R"({"name":"my_tool","arguments":{}})");
-    std::string rpc = McpClient::build_rpc(42, "tools/call", params);
-    JsonValue v = parse_json(rpc);
-    CHECK_EQ((int)v.get("id")->as_number(), 42);
-    CHECK_EQ(v.get("method")->as_string(), std::string("tools/call"));
-    CHECK(v.get("params").has_value());
-    CHECK_EQ(v.get("params")->get("name")->as_string(), std::string("my_tool"));
+  JsonValue params = parse_json(R"({"name":"my_tool","arguments":{}})");
+  std::string rpc = McpClient::build_rpc(42, "tools/call", params);
+  JsonValue v = parse_json(rpc);
+  CHECK_EQ((int)v.get("id")->as_number(), 42);
+  CHECK_EQ(v.get("method")->as_string(), std::string("tools/call"));
+  CHECK(v.get("params").has_value());
+  CHECK_EQ(v.get("params")->get("name")->as_string(), std::string("my_tool"));
 }
 
 TEST(mcp_build_rpc_escapes_special_chars_in_method) {
-    // Method with a double-quote — escape_json must be applied
-    std::string rpc = McpClient::build_rpc(1, "foo\"bar", JsonValue{});
-    // Must produce valid JSON
-    JsonValue v = parse_json(rpc);
-    // Round-trip: the method name must survive intact
-    CHECK_EQ(v.get("method")->as_string(), std::string("foo\"bar"));
+  // Method with a double-quote — escape_json must be applied
+  std::string rpc = McpClient::build_rpc(1, "foo\"bar", JsonValue{});
+  // Must produce valid JSON
+  JsonValue v = parse_json(rpc);
+  // Round-trip: the method name must survive intact
+  CHECK_EQ(v.get("method")->as_string(), std::string("foo\"bar"));
 }
 
 // ============================================================================
@@ -46,11 +66,13 @@ TEST(mcp_build_rpc_escapes_special_chars_in_method) {
 // ============================================================================
 
 TEST(mcp_build_notification) {
-    std::string notif = McpClient::build_notification("notifications/initialized");
-    JsonValue v = parse_json(notif);
-    CHECK_EQ(v.get("jsonrpc")->as_string(), std::string("2.0"));
-    CHECK_EQ(v.get("method")->as_string(), std::string("notifications/initialized"));
-    CHECK(!v.get("id").has_value());
+  std::string notif =
+      McpClient::build_notification("notifications/initialized");
+  JsonValue v = parse_json(notif);
+  CHECK_EQ(v.get("jsonrpc")->as_string(), std::string("2.0"));
+  CHECK_EQ(v.get("method")->as_string(),
+           std::string("notifications/initialized"));
+  CHECK(!v.get("id").has_value());
 }
 
 // ============================================================================
@@ -58,21 +80,22 @@ TEST(mcp_build_notification) {
 // ============================================================================
 
 TEST(mcp_parse_json_response) {
-    std::string body = R"({"jsonrpc":"2.0","id":1,"result":{"tools":[]}})";
-    JsonValue v = McpClient::parse_sse_or_json(body, "application/json");
-    CHECK(v.get("result").has_value());
-    CHECK(v.get("result")->get("tools")->is_array());
+  std::string body = R"({"jsonrpc":"2.0","id":1,"result":{"tools":[]}})";
+  JsonValue v = McpClient::parse_sse_or_json(body, "application/json");
+  CHECK(v.get("result").has_value());
+  CHECK(v.get("result")->get("tools")->is_array());
 }
 
 TEST(mcp_parse_json_with_charset) {
-    std::string body = R"({"jsonrpc":"2.0","id":2,"result":{"ok":true}})";
-    JsonValue v = McpClient::parse_sse_or_json(body, "application/json; charset=utf-8");
-    CHECK(v.get("result").has_value());
+  std::string body = R"({"jsonrpc":"2.0","id":2,"result":{"ok":true}})";
+  JsonValue v =
+      McpClient::parse_sse_or_json(body, "application/json; charset=utf-8");
+  CHECK(v.get("result").has_value());
 }
 
 TEST(mcp_parse_json_invalid_returns_null) {
-    JsonValue v = McpClient::parse_sse_or_json("not json", "application/json");
-    CHECK(v.is_null());
+  JsonValue v = McpClient::parse_sse_or_json("not json", "application/json");
+  CHECK(v.is_null());
 }
 
 // ============================================================================
@@ -80,57 +103,60 @@ TEST(mcp_parse_json_invalid_returns_null) {
 // ============================================================================
 
 TEST(mcp_parse_sse_basic) {
-    std::string body =
-        "event: message\n"
-        "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[]}}\n"
-        "\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
-    CHECK(v.get("result").has_value());
-    CHECK(v.get("result")->get("tools")->is_array());
+  std::string body =
+      "event: message\n"
+      "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"tools\":[]}}\n"
+      "\n";
+  JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
+  CHECK(v.get("result").has_value());
+  CHECK(v.get("result")->get("tools")->is_array());
 }
 
 TEST(mcp_parse_sse_with_charset) {
-    std::string body = "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"x\":42}}\n\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream; charset=utf-8");
-    CHECK(v.get("result")->get("x")->as_number() == 42.0);
+  std::string body =
+      "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"x\":42}}\n\n";
+  JsonValue v =
+      McpClient::parse_sse_or_json(body, "text/event-stream; charset=utf-8");
+  CHECK(v.get("result")->get("x")->as_number() == 42.0);
 }
 
 TEST(mcp_parse_sse_skips_comments) {
-    std::string body =
-        ": keepalive\n"
-        "\n"
-        "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"ok\":true}}\n"
-        "\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
-    CHECK(v.get("result")->get("ok")->as_bool() == true);
+  std::string body =
+      ": keepalive\n"
+      "\n"
+      "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"ok\":true}}\n"
+      "\n";
+  JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
+  CHECK(v.get("result")->get("ok")->as_bool() == true);
 }
 
 TEST(mcp_parse_sse_done_returns_null) {
-    std::string body = "data: [DONE]\n\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
-    CHECK(v.is_null());
+  std::string body = "data: [DONE]\n\n";
+  JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
+  CHECK(v.is_null());
 }
 
 TEST(mcp_parse_sse_empty_returns_null) {
-    std::string body = "\n\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
-    CHECK(v.is_null());
+  std::string body = "\n\n";
+  JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
+  CHECK(v.is_null());
 }
 
 TEST(mcp_parse_sse_crlf_lines) {
-    std::string body = "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\r\n\r\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
-    CHECK(v.get("result").has_value());
+  std::string body =
+      "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\r\n\r\n";
+  JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
+  CHECK(v.get("result").has_value());
 }
 
 TEST(mcp_parse_sse_skips_invalid_json_uses_next) {
-    // First data line is bad JSON; second is valid — second should be returned
-    std::string body =
-        "data: not-valid-json\n"
-        "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"v\":7}}\n"
-        "\n";
-    JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
-    CHECK(v.get("result")->get("v")->as_number() == 7.0);
+  // First data line is bad JSON; second is valid — second should be returned
+  std::string body =
+      "data: not-valid-json\n"
+      "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"v\":7}}\n"
+      "\n";
+  JsonValue v = McpClient::parse_sse_or_json(body, "text/event-stream");
+  CHECK(v.get("result")->get("v")->as_number() == 7.0);
 }
 
 // ============================================================================
@@ -138,41 +164,43 @@ TEST(mcp_parse_sse_skips_invalid_json_uses_next) {
 // ============================================================================
 
 TEST(mcp_parse_tools_list_empty_array) {
-    JsonValue result = parse_json(R"({"tools":[]})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(0));
+  JsonValue result = parse_json(R"({"tools":[]})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(0));
 }
 
 TEST(mcp_parse_tools_list_missing_tools_field) {
-    JsonValue result = parse_json(R"({})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(0));
+  JsonValue result = parse_json(R"({})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(0));
 }
 
 TEST(mcp_parse_tools_list_name_only) {
-    JsonValue result = parse_json(R"({"tools":[{"name":"my_tool"}]})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(1));
-    CHECK_EQ(defs[0].name, std::string("my_tool"));
-    CHECK(defs[0].description.empty());
-    CHECK_EQ(defs[0].params.size(), size_t(0));
+  JsonValue result = parse_json(R"({"tools":[{"name":"my_tool"}]})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(1));
+  CHECK_EQ(defs[0].name, std::string("my_tool"));
+  CHECK(defs[0].description.empty());
+  CHECK_EQ(defs[0].params.size(), size_t(0));
 }
 
 TEST(mcp_parse_tools_list_with_description) {
-    JsonValue result = parse_json(R"({"tools":[{"name":"read","description":"Read a file"}]})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs[0].description, std::string("Read a file"));
+  JsonValue result =
+      parse_json(R"({"tools":[{"name":"read","description":"Read a file"}]})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs[0].description, std::string("Read a file"));
 }
 
 TEST(mcp_parse_tools_list_skips_tool_without_name) {
-    JsonValue result = parse_json(R"({"tools":[{"description":"no name here"},{"name":"ok"}]})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(1));
-    CHECK_EQ(defs[0].name, std::string("ok"));
+  JsonValue result =
+      parse_json(R"({"tools":[{"description":"no name here"},{"name":"ok"}]})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(1));
+  CHECK_EQ(defs[0].name, std::string("ok"));
 }
 
 TEST(mcp_parse_tools_list_params_from_schema) {
-    JsonValue result = parse_json(R"({
+  JsonValue result = parse_json(R"({
         "tools": [{
             "name": "write_file",
             "inputSchema": {
@@ -185,28 +213,28 @@ TEST(mcp_parse_tools_list_params_from_schema) {
             }
         }]
     })");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(1));
-    CHECK_EQ(defs[0].params.size(), size_t(2));
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(1));
+  CHECK_EQ(defs[0].params.size(), size_t(2));
 
-    // Both params must be present (map order not guaranteed; find by name)
-    auto find_param = [&](const std::string& name) {
-        auto it = std::find_if(defs[0].params.begin(), defs[0].params.end(),
-            [&](const ToolParam& p) { return p.name == name; });
-        return it != defs[0].params.end() ? &*it : nullptr;
-    };
-    auto* path_p = find_param("path");
-    auto* content_p = find_param("content");
-    CHECK(path_p != nullptr);
-    CHECK(content_p != nullptr);
-    CHECK_EQ(path_p->type, std::string("string"));
-    CHECK_EQ(path_p->description, std::string("File path"));
-    CHECK(path_p->required);
-    CHECK(content_p->required);
+  // Both params must be present (map order not guaranteed; find by name)
+  auto find_param = [&](const std::string &name) {
+    auto it = std::find_if(defs[0].params.begin(), defs[0].params.end(),
+                           [&](const ToolParam &p) { return p.name == name; });
+    return it != defs[0].params.end() ? &*it : nullptr;
+  };
+  auto *path_p = find_param("path");
+  auto *content_p = find_param("content");
+  CHECK(path_p != nullptr);
+  CHECK(content_p != nullptr);
+  CHECK_EQ(path_p->type, std::string("string"));
+  CHECK_EQ(path_p->description, std::string("File path"));
+  CHECK(path_p->required);
+  CHECK(content_p->required);
 }
 
 TEST(mcp_parse_tools_list_required_flag_correctly_set) {
-    JsonValue result = parse_json(R"({
+  JsonValue result = parse_json(R"({
         "tools": [{
             "name": "search",
             "inputSchema": {
@@ -218,27 +246,28 @@ TEST(mcp_parse_tools_list_required_flag_correctly_set) {
             }
         }]
     })");
-    auto defs = McpClient::parse_tools_list(result);
-    auto find_param = [&](const std::string& name) {
-        auto it = std::find_if(defs[0].params.begin(), defs[0].params.end(),
-            [&](const ToolParam& p) { return p.name == name; });
-        return it != defs[0].params.end() ? &*it : nullptr;
-    };
-    auto* query_p = find_param("query");
-    auto* limit_p = find_param("limit");
-    CHECK(query_p != nullptr && query_p->required);
-    CHECK(limit_p != nullptr && !limit_p->required);
-    CHECK_EQ(limit_p->type, std::string("integer"));
+  auto defs = McpClient::parse_tools_list(result);
+  auto find_param = [&](const std::string &name) {
+    auto it = std::find_if(defs[0].params.begin(), defs[0].params.end(),
+                           [&](const ToolParam &p) { return p.name == name; });
+    return it != defs[0].params.end() ? &*it : nullptr;
+  };
+  auto *query_p = find_param("query");
+  auto *limit_p = find_param("limit");
+  CHECK(query_p != nullptr && query_p->required);
+  CHECK(limit_p != nullptr && !limit_p->required);
+  CHECK_EQ(limit_p->type, std::string("integer"));
 }
 
 TEST(mcp_parse_tools_list_no_schema_gives_no_params) {
-    JsonValue result = parse_json(R"({"tools":[{"name":"ping","description":"Ping the server"}]})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs[0].params.size(), size_t(0));
+  JsonValue result = parse_json(
+      R"({"tools":[{"name":"ping","description":"Ping the server"}]})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs[0].params.size(), size_t(0));
 }
 
 TEST(mcp_parse_tools_list_empty_required_array) {
-    JsonValue result = parse_json(R"({
+  JsonValue result = parse_json(R"({
         "tools": [{
             "name": "t",
             "inputSchema": {
@@ -247,20 +276,21 @@ TEST(mcp_parse_tools_list_empty_required_array) {
             }
         }]
     })");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs[0].params.size(), size_t(1));
-    CHECK(!defs[0].params[0].required);
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs[0].params.size(), size_t(1));
+  CHECK(!defs[0].params[0].required);
 }
 
 TEST(mcp_parse_tools_list_multiple_tools) {
-    JsonValue result = parse_json(R"({"tools":[{"name":"a"},{"name":"b"},{"name":"c"}]})");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(3));
+  JsonValue result =
+      parse_json(R"({"tools":[{"name":"a"},{"name":"b"},{"name":"c"}]})");
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(3));
 }
 
 TEST(mcp_parse_tools_list_param_type_defaults_to_string) {
-    // Property with no "type" field — should default to "string"
-    JsonValue result = parse_json(R"({
+  // Property with no "type" field — should default to "string"
+  JsonValue result = parse_json(R"({
         "tools": [{
             "name": "t",
             "inputSchema": {
@@ -268,8 +298,8 @@ TEST(mcp_parse_tools_list_param_type_defaults_to_string) {
             }
         }]
     })");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs[0].params[0].type, std::string("string"));
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs[0].params[0].type, std::string("string"));
 }
 
 // ============================================================================
@@ -277,68 +307,68 @@ TEST(mcp_parse_tools_list_param_type_defaults_to_string) {
 // ============================================================================
 
 TEST(mcp_parse_call_result_success_single_block) {
-    JsonValue result = parse_json(R"({
+  JsonValue result = parse_json(R"({
         "content": [{"type":"text","text":"hello world"}],
         "isError": false
     })");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
-    CHECK_EQ(r.content, std::string("hello world"));
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
+  CHECK_EQ(r.content, std::string("hello world"));
 }
 
 TEST(mcp_parse_call_result_error_flag) {
-    JsonValue result = parse_json(R"({
+  JsonValue result = parse_json(R"({
         "content": [{"type":"text","text":"something went wrong"}],
         "isError": true
     })");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(!r.success);
-    CHECK_EQ(r.error, std::string("something went wrong"));
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(!r.success);
+  CHECK_EQ(r.error, std::string("something went wrong"));
 }
 
 TEST(mcp_parse_call_result_multiple_text_blocks_concatenated) {
-    JsonValue result = parse_json(R"({
+  JsonValue result = parse_json(R"({
         "content": [
             {"type":"text","text":"line1\n"},
             {"type":"text","text":"line2\n"}
         ]
     })");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
-    CHECK_EQ(r.content, std::string("line1\nline2\n"));
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
+  CHECK_EQ(r.content, std::string("line1\nline2\n"));
 }
 
 TEST(mcp_parse_call_result_non_text_blocks_skipped) {
-    // Image block has no "text" field — should be silently skipped
-    JsonValue result = parse_json(R"({
+  // Image block has no "text" field — should be silently skipped
+  JsonValue result = parse_json(R"({
         "content": [
             {"type":"image","data":"base64...","mimeType":"image/png"},
             {"type":"text","text":"after image"}
         ]
     })");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
-    CHECK_EQ(r.content, std::string("after image"));
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
+  CHECK_EQ(r.content, std::string("after image"));
 }
 
 TEST(mcp_parse_call_result_empty_content_array) {
-    JsonValue result = parse_json(R"({"content":[]})");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
-    CHECK(r.content.empty());
+  JsonValue result = parse_json(R"({"content":[]})");
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
+  CHECK(r.content.empty());
 }
 
 TEST(mcp_parse_call_result_missing_content_field) {
-    JsonValue result = parse_json(R"({})");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
-    CHECK(r.content.empty());
+  JsonValue result = parse_json(R"({})");
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
+  CHECK(r.content.empty());
 }
 
 TEST(mcp_parse_call_result_is_error_absent_treated_as_success) {
-    JsonValue result = parse_json(R"({"content":[{"type":"text","text":"ok"}]})");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
+  JsonValue result = parse_json(R"({"content":[{"type":"text","text":"ok"}]})");
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
 }
 
 // ============================================================================
@@ -346,106 +376,116 @@ TEST(mcp_parse_call_result_is_error_absent_treated_as_success) {
 // ============================================================================
 
 // Helper: build a Config suitable for Stdio transport tests
-static Config make_stdio_config(const std::string& command) {
-    Config cfg = Config::defaults();
-    cfg.timeout_sec = 5;
-    McpServerConfig srv;
-    srv.name      = "test-stdio";
-    srv.transport = McpTransportType::Stdio;
-    srv.command   = command;
-    cfg.mcp_servers.push_back(srv);
-    return cfg;
+static Config make_stdio_config(const std::string &command) {
+  Config cfg = Config::defaults();
+  cfg.timeout_sec = 5;
+  McpServerConfig srv;
+  srv.name = "test-stdio";
+  srv.transport = McpTransportType::Stdio;
+  srv.command = command;
+  cfg.mcp_servers.push_back(srv);
+  return cfg;
 }
 
 TEST(mcp_stdio_send_receive_line) {
-    // Server reads one line (the initialize request, always id=1) then responds.
-    // After that the server exits; send_notification() will get EPIPE (ignored).
-    std::string cmd =
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n'";
+  // Server reads one line (the initialize request, always id=1) then responds.
+  // After that the server exits; send_notification() will get EPIPE (ignored).
+  std::string cmd =
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n'";
 
-    Config cfg = make_stdio_config(cmd);
-    McpClient client(cfg.mcp_servers[0], cfg);
-    bool ok = client.initialize();
-    CHECK(ok);
+  Config cfg = make_stdio_config(cmd);
+  McpClient client(cfg.mcp_servers[0], cfg);
+  bool ok = client.initialize();
+  CHECK(ok);
 }
 
 TEST(mcp_stdio_eof_returns_no_tools) {
-    // Server exits immediately — list_tools() should return empty, not hang
-    Config cfg = make_stdio_config("exit 0");
-    McpClient client(cfg.mcp_servers[0], cfg);
-    // initialize will fail (EOF), list_tools should return {}
-    client.initialize();  // may fail — OK
-    auto tools = client.list_tools();
-    CHECK(tools.empty());
+  // Server exits immediately — list_tools() should return empty, not hang
+  Config cfg = make_stdio_config("exit 0");
+  McpClient client(cfg.mcp_servers[0], cfg);
+  // initialize will fail (EOF), list_tools should return {}
+  client.initialize(); // may fail — OK
+  auto tools = client.list_tools();
+  CHECK(tools.empty());
 }
 
 TEST(mcp_stdio_destructor_kills_child) {
-    // Verify the child process is reaped when the transport is destroyed
-    pid_t child_pid = -1;
+  // Verify the child process is reaped when the transport is destroyed
+  pid_t child_pid = -1;
 
-    {
-        // Use a server that writes its PID to a pipe then sleeps
-        // We use a parent-side pipe to capture the PID before the client destroys it
-        int pipefd[2];
-        CHECK(pipe(pipefd) == 0);
+  {
+    // Use a server that writes its PID to a pipe then sleeps
+    // We use a parent-side pipe to capture the PID before the client destroys
+    // it
+    int pipefd[2];
+    CHECK(pipe(pipefd) == 0);
 
-        std::string cmd = "echo $$ >&" + std::to_string(pipefd[1]) + "; sleep 60";
-        Config cfg = make_stdio_config(cmd);
+    std::string cmd = "echo $$ >&" + std::to_string(pipefd[1]) + "; sleep 60";
+    Config cfg = make_stdio_config(cmd);
 
-        McpClient client(cfg.mcp_servers[0], cfg);
+    McpClient client(cfg.mcp_servers[0], cfg);
 
-        // Close write end AFTER fork so child inherits the fd and can write its PID
-        close(pipefd[1]);
+    // Close write end AFTER fork so child inherits the fd and can write its PID
+    close(pipefd[1]);
 
-        // Read the child's PID from our pipe
-        char buf[32] = {};
-        ssize_t n = read(pipefd[0], buf, sizeof(buf) - 1);
-        close(pipefd[0]);
-        if (n > 0) child_pid = std::atoi(buf);
+    // Read the child's PID from our pipe
+    char buf[32] = {};
+    ssize_t n = read(pipefd[0], buf, sizeof(buf) - 1);
+    close(pipefd[0]);
+    if (n > 0)
+      child_pid = std::atoi(buf);
 
-        // client destructor runs here — should kill the child
-    }
+    // client destructor runs here — should kill the child
+  }
 
-    if (child_pid > 0) {
-        // Give the destructor a moment, then verify the process is gone
-        usleep(200000);  // 200ms
-        int result = kill(child_pid, 0);
-        CHECK(result != 0);  // ESRCH: process does not exist
-    }
+  if (child_pid > 0) {
+    // Give the destructor a moment, then verify the process is gone
+    usleep(200000); // 200ms
+    int result = kill(child_pid, 0);
+    CHECK(result != 0); // ESRCH: process does not exist
+  }
 }
 
 // ============================================================================
 // LegacySseTransport — SSE event parsing unit tests (no network required)
-// These test parse_sse_or_json which is the same underlying logic used by the reader thread
+// These test parse_sse_or_json which is the same underlying logic used by the
+// reader thread
 // ============================================================================
 
 TEST(mcp_sse_parse_endpoint_event_data_extraction) {
-    // The SSE "endpoint" event data is a plain URL string.
-    // parse_sse_or_json is used to extract data events — verify endpoint data round-trips.
-    std::string sse_body = "event: endpoint\ndata: http://localhost:4000/messages\n\n";
-    // parse_sse_or_json looks for "data: " lines and tries to JSON-parse them.
-    // A plain URL is not valid JSON, so it returns null — that's expected; the
-    // real LegacySseTransport reader parses the event type separately.
-    // What we test here is that the SSE line parser reads the data field correctly.
-    std::string data_line = "data: http://localhost:4000/messages";
-    CHECK(data_line.substr(0, 6) == "data: ");
-    CHECK_EQ(data_line.substr(6), std::string("http://localhost:4000/messages"));
+  // The SSE "endpoint" event data is a plain URL string.
+  // parse_sse_or_json is used to extract data events — verify endpoint data
+  // round-trips.
+  std::string sse_body =
+      "event: endpoint\ndata: http://localhost:4000/messages\n\n";
+  // parse_sse_or_json looks for "data: " lines and tries to JSON-parse them.
+  // A plain URL is not valid JSON, so it returns null — that's expected; the
+  // real LegacySseTransport reader parses the event type separately.
+  // What we test here is that the SSE line parser reads the data field
+  // correctly.
+  std::string data_line = "data: http://localhost:4000/messages";
+  CHECK(data_line.substr(0, 6) == "data: ");
+  CHECK_EQ(data_line.substr(6), std::string("http://localhost:4000/messages"));
 }
 
 TEST(mcp_sse_parse_message_event_roundtrip) {
-    // Verify parse_sse_or_json extracts a JSON-RPC message from a data: line
-    std::string sse_body =
-        "event: message\n"
-        "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}\n"
-        "\n";
-    // parse_sse_or_json reads the first "data: " line and JSON-parses it
-    JsonValue parsed = McpClient::parse_sse_or_json(sse_body, "text/event-stream");
-    CHECK(!parsed.is_null());
-    auto id_v = parsed.get("id");
-    CHECK(id_v.has_value());
-    CHECK(id_v->is_number());
-    CHECK((int)id_v->as_number() == 1);
+  // Verify parse_sse_or_json extracts a JSON-RPC message from a data: line
+  std::string sse_body =
+      "event: message\n"
+      "data: "
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":"
+      "\"text\",\"text\":\"hello\"}]}}\n"
+      "\n";
+  // parse_sse_or_json reads the first "data: " line and JSON-parses it
+  JsonValue parsed =
+      McpClient::parse_sse_or_json(sse_body, "text/event-stream");
+  CHECK(!parsed.is_null());
+  auto id_v = parsed.get("id");
+  CHECK(id_v.has_value());
+  CHECK(id_v->is_number());
+  CHECK((int)id_v->as_number() == 1);
 }
 
 // ============================================================================
@@ -453,10 +493,10 @@ TEST(mcp_sse_parse_message_event_roundtrip) {
 // ============================================================================
 
 TEST(mcp_parse_tools_list_type_array_defaults_to_string) {
-    // Real-world MCP servers (Anthropic SDK etc.) use "type": ["string", "null"]
-    // for optional parameters. is_string() returns false for arrays, so the parser
-    // should fall back to "string" rather than crash or skip the param.
-    JsonValue result = parse_json(R"({
+  // Real-world MCP servers (Anthropic SDK etc.) use "type": ["string", "null"]
+  // for optional parameters. is_string() returns false for arrays, so the
+  // parser should fall back to "string" rather than crash or skip the param.
+  JsonValue result = parse_json(R"({
         "tools": [{
             "name": "t",
             "inputSchema": {
@@ -466,35 +506,36 @@ TEST(mcp_parse_tools_list_type_array_defaults_to_string) {
             }
         }]
     })");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(1));
-    CHECK_EQ(defs[0].params.size(), size_t(1));
-    CHECK_EQ(defs[0].params[0].type, std::string("string"));
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(1));
+  CHECK_EQ(defs[0].params.size(), size_t(1));
+  CHECK_EQ(defs[0].params[0].type, std::string("string"));
 }
 
 TEST(mcp_parse_call_result_null_content_field) {
-    // {"content": null} differs from {} (missing key) and {"content": []} (empty array).
-    // content_v.has_value() is true but is_array() is false → output empty, success.
-    JsonValue result = parse_json(R"({"content": null})");
-    ToolResult r = McpClient::parse_call_result(result);
-    CHECK(r.success);
-    CHECK(r.content.empty());
+  // {"content": null} differs from {} (missing key) and {"content": []} (empty
+  // array). content_v.has_value() is true but is_array() is false → output
+  // empty, success.
+  JsonValue result = parse_json(R"({"content": null})");
+  ToolResult r = McpClient::parse_call_result(result);
+  CHECK(r.success);
+  CHECK(r.content.empty());
 }
 
 TEST(mcp_parse_tools_list_schema_without_properties) {
-    // inputSchema present but no "properties" field → the guard
-    // `if (props_v && props_v->is_object())` short-circuits → empty params list.
-    JsonValue result = parse_json(R"({
+  // inputSchema present but no "properties" field → the guard
+  // `if (props_v && props_v->is_object())` short-circuits → empty params list.
+  JsonValue result = parse_json(R"({
         "tools": [{
             "name": "no_props",
             "description": "a tool without a properties field",
             "inputSchema": {"type": "object"}
         }]
     })");
-    auto defs = McpClient::parse_tools_list(result);
-    CHECK_EQ(defs.size(), size_t(1));
-    CHECK_EQ(defs[0].name, std::string("no_props"));
-    CHECK(defs[0].params.empty());
+  auto defs = McpClient::parse_tools_list(result);
+  CHECK_EQ(defs.size(), size_t(1));
+  CHECK_EQ(defs[0].name, std::string("no_props"));
+  CHECK(defs[0].params.empty());
 }
 
 // ============================================================================
@@ -502,80 +543,96 @@ TEST(mcp_parse_tools_list_schema_without_properties) {
 // ============================================================================
 
 TEST(mcp_stdio_list_tools_roundtrip) {
-    // Server handles initialize (id=1), consumes the notification, then answers tools/list (id=2)
-    std::string cmd =
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
-        "IFS= read -r line && "
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"ping\",\"description\":\"Ping\"}]}}\\n'";
+  // Server handles initialize (id=1), consumes the notification, then answers
+  // tools/list (id=2)
+  std::string cmd =
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
+      "IFS= read -r line && "
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":"
+      "\"ping\",\"description\":\"Ping\"}]}}\\n'";
 
-    Config cfg = make_stdio_config(cmd);
-    McpClient client(cfg.mcp_servers[0], cfg);
-    CHECK(client.initialize());
-    auto tools = client.list_tools();
-    CHECK_EQ(tools.size(), size_t(1));
-    CHECK_EQ(tools[0].name, std::string("ping"));
-    CHECK_EQ(tools[0].description, std::string("Ping"));
+  Config cfg = make_stdio_config(cmd);
+  McpClient client(cfg.mcp_servers[0], cfg);
+  CHECK(client.initialize());
+  auto tools = client.list_tools();
+  CHECK_EQ(tools.size(), size_t(1));
+  CHECK_EQ(tools[0].name, std::string("ping"));
+  CHECK_EQ(tools[0].description, std::string("Ping"));
 }
 
 TEST(mcp_stdio_call_tool_roundtrip) {
-    // Server handles initialize (id=1), consumes the notification, then answers tools/call (id=2)
-    std::string cmd =
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
-        "IFS= read -r line && "
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"pong\"}]}}\\n'";
+  // Server handles initialize (id=1), consumes the notification, then answers
+  // tools/call (id=2)
+  std::string cmd =
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
+      "IFS= read -r line && "
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":"
+      "\"text\",\"text\":\"pong\"}]}}\\n'";
 
-    Config cfg = make_stdio_config(cmd);
-    McpClient client(cfg.mcp_servers[0], cfg);
-    CHECK(client.initialize());
-    ToolResult r = client.call_tool("ping", ToolArgs{});
-    CHECK(r.success);
-    CHECK_EQ(r.content, std::string("pong"));
+  Config cfg = make_stdio_config(cmd);
+  McpClient client(cfg.mcp_servers[0], cfg);
+  CHECK(client.initialize());
+  ToolResult r = client.call_tool("ping", ToolArgs{});
+  CHECK(r.success);
+  CHECK_EQ(r.content, std::string("pong"));
 }
 
 TEST(mcp_stdio_rpc_error_response) {
-    // Server returns a JSON-RPC error object for the tool call → call_tool returns failure
-    std::string cmd =
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
-        "IFS= read -r line && "
-        "IFS= read -r line && "
-        "printf '{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-1,\"message\":\"boom\"}}\\n'";
+  // Server returns a JSON-RPC error object for the tool call → call_tool
+  // returns failure
+  std::string cmd =
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"capabilities\":{}}}\\n' && "
+      "IFS= read -r line && "
+      "IFS= read -r line && "
+      "printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-1,\"message\":"
+      "\"boom\"}}\\n'";
 
-    Config cfg = make_stdio_config(cmd);
-    McpClient client(cfg.mcp_servers[0], cfg);
-    CHECK(client.initialize());
-    ToolResult r = client.call_tool("ping", ToolArgs{});
-    CHECK(!r.success);
-    CHECK(!r.error.empty());
+  Config cfg = make_stdio_config(cmd);
+  McpClient client(cfg.mcp_servers[0], cfg);
+  CHECK(client.initialize());
+  ToolResult r = client.call_tool("ping", ToolArgs{});
+  CHECK(!r.success);
+  CHECK(!r.error.empty());
 }
 
 TEST(mcp_stdio_concurrent_calls_no_crash) {
-    // Server echoes the correct id back for every RPC that carries one.
-    // The notification has no "id" field so it gets no response (grep produces nothing).
-    std::string cmd =
-        "while IFS= read -r line; do "
-        "  id=$(printf '%s' \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2); "
-        "  [ -n \"$id\" ] && "
-        "  printf '{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}]}}\\n' \"$id\"; "
-        "done";
+  // Server echoes the correct id back for every RPC that carries one.
+  // The notification has no "id" field so it gets no response (grep produces
+  // nothing).
+  std::string cmd =
+      "while IFS= read -r line; do "
+      "  id=$(printf '%s' \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2); "
+      "  [ -n \"$id\" ] && "
+      "  printf "
+      "'{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"content\":[{\"type\":"
+      "\"text\",\"text\":\"ok\"}]}}\\n' \"$id\"; "
+      "done";
 
-    Config cfg = make_stdio_config(cmd);
-    McpClient client(cfg.mcp_servers[0], cfg);
-    CHECK(client.initialize());
+  Config cfg = make_stdio_config(cmd);
+  McpClient client(cfg.mcp_servers[0], cfg);
+  CHECK(client.initialize());
 
-    std::atomic<int> success_count{0};
-    auto do_call = [&]() {
-        ToolResult r = client.call_tool("ping", ToolArgs{});
-        if (r.success) ++success_count;
-    };
+  std::atomic<int> success_count{0};
+  auto do_call = [&]() {
+    ToolResult r = client.call_tool("ping", ToolArgs{});
+    if (r.success)
+      ++success_count;
+  };
 
-    std::thread t1(do_call), t2(do_call);
-    t1.join();
-    t2.join();
+  std::thread t1(do_call), t2(do_call);
+  t1.join();
+  t2.join();
 
-    CHECK_EQ(success_count.load(), 2);
+  CHECK_EQ(success_count.load(), 2);
 }
