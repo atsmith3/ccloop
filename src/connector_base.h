@@ -36,6 +36,12 @@ protected:
     std::string body;
   };
 
+  struct CurlHeaders {
+    curl_slist *p = nullptr;
+    ~CurlHeaders() { curl_slist_free_all(p); }
+    void append(const char *s) { p = curl_slist_append(p, s); }
+  };
+
   Config cfg_;
   CURL *curl_ = nullptr;
 

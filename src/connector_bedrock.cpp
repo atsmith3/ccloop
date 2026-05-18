@@ -176,11 +176,10 @@ LlmResponse BedrockConnector::complete(const ContextManager &ctx,
                     ".amazonaws.com/model/" + cfg_.model + "/converse";
   std::string body = build_request_json(ctx, cfg_, tools);
 
-  struct curl_slist *headers = nullptr;
-  headers = curl_slist_append(headers, "Content-Type: application/json");
+  CurlHeaders headers;
+  headers.append("Content-Type: application/json");
 
-  HttpResult result = http_post(url, body, headers);
-  curl_slist_free_all(headers);
+  HttpResult result = http_post(url, body, headers.p);
 
   if (result.status < 200 || result.status >= 300) {
     return make_http_error(result);

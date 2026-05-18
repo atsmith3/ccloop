@@ -20,6 +20,7 @@
 
 #include "../src/agent.h"
 #include "../src/config.h"
+#include "../src/connector.h"
 #include "../src/ui.h"
 #include "harness.h"
 #include <cstdlib>
@@ -45,6 +46,21 @@ struct AgentTests {
   }
   static AgentMode mode(const Agent &a) { return a.mode_; }
   static const ContextManager &ctx(const Agent &a) { return a.context_; }
+};
+
+// Minimal Connector stub for injecting canned responses in tests.
+struct StubConnector : Connector {
+  std::vector<LlmResponse> responses;
+  size_t call_count = 0;
+
+  LlmResponse complete(const ContextManager &,
+                       const std::vector<ToolDef> &) override {
+    if (call_count < responses.size())
+      return responses[call_count++];
+    LlmResponse done;
+    done.content = "[stub exhausted]";
+    return done;
+  }
 };
 
 static Config test_cfg() { return Config::defaults(); }
@@ -244,4 +260,51 @@ TEST(agent_slash_commands_all_registered) {
   CHECK(has("edit"));
   CHECK(has("quit"));
   CHECK(has("help"));
+}
+
+// ============================================================================
+// DI constructor — injected StubConnector
+// ============================================================================
+
+TEST(agent_run_text_response_returns_0) {
+  Ui ui(true);
+  LlmResponse resp;
+  resp.content = "All done.";
+  auto conn = std::make_unique<StubConnector>();
+  conn->responses.push_back(resp);
+  Config cfg = test_cfg();
+  cfg.permissions.auto_approve_read = true;
+  Agent a(cfg, ui, std::move(conn), AgentMode::Act);
+  CHECK_EQ(a.run("do something"), 0);
+}
+
+TEST(agent_run_error_response_returns_1) {
+  Ui ui(true);
+  LlmResponse resp;
+  resp.is_error = true;
+  resp.content = "Connection refused";
+  auto conn = std::make_unique<StubConnector>();
+  conn->responses.push_back(resp);
+  Agent a(test_cfg(), ui, std::move(conn), AgentMode::Act);
+  CHECK_EQ(a.run("do something"), 1);
+}
+
+TEST(agent_run_stub_connector_called_once) {
+  Ui ui(true);
+  LlmResponse resp;
+  resp.content = "Done.";
+  auto *raw = new StubConnector();
+  raw->responses.push_back(resp);
+  Agent a(test_cfg(), ui, std::unique_ptr<Connector>(raw), AgentMode::Act);
+  a.run("ping");
+  CHECK_EQ(raw->call_count, size_t(1));
+}
+
+TEST(agent_run_empty_response_exits_cleanly) {
+  Ui ui(true);
+  LlmResponse resp; // empty content, no tool calls, no error
+  auto conn = std::make_unique<StubConnector>();
+  conn->responses.push_back(resp);
+  Agent a(test_cfg(), ui, std::move(conn), AgentMode::Act);
+  CHECK_EQ(a.run("go"), 0);
 }

@@ -42,6 +42,15 @@ Agent::Agent(Config config, Ui &ui, AgentMode initial_mode)
   build_slash_commands();
 }
 
+Agent::Agent(Config config, Ui &ui, std::unique_ptr<Connector> connector,
+             AgentMode initial_mode)
+    : config_(std::move(config)), mode_(initial_mode),
+      context_(config_.token_limit, config_.compaction_keep_recent),
+      connector_(std::move(connector)), ui_(ui) {
+  rebuild_registry();
+  build_slash_commands();
+}
+
 int Agent::run(const std::string &initial_prompt) {
   context_.push_system(system_prompt());
   ui_.show_mode(mode_, context_.total_tokens(), config_.token_limit);
@@ -512,7 +521,14 @@ void Agent::handle_tool_calls(const std::vector<ToolCall> &calls) {
 
     // Phase 3: Collect results in arrival order, show, and combine
     for (size_t i = 0; i < pending.size(); ++i) {
-      ToolResult result = futures[i].get();
+      ToolResult result;
+      try {
+        result = futures[i].get();
+      } catch (const std::exception &e) {
+        result = ToolResult::fail(std::string("Tool threw: ") + e.what());
+      } catch (...) {
+        result = ToolResult::fail("Tool threw an unknown exception");
+      }
       ui_.show_tool_result(pending[i].call, result);
       if (!combined.empty())
         combined += "\n\n";

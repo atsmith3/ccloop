@@ -22,13 +22,16 @@
 #include "config.h"
 #include "connector_bedrock.h"
 #include "connector_openai.h"
+#include <stdexcept>
 
 std::unique_ptr<Connector> make_connector(const Config &cfg) {
   switch (cfg.connector_type) {
   case ConnectorType::Bedrock:
     return std::make_unique<BedrockConnector>(cfg);
   case ConnectorType::OpenAiJson:
-  default:
     return std::make_unique<OpenAiConnector>(cfg);
   }
+  throw std::runtime_error(
+      "make_connector: unhandled ConnectorType " +
+      std::to_string(static_cast<int>(cfg.connector_type)));
 }

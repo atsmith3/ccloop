@@ -41,6 +41,8 @@ struct SlashCommand {
 class Agent {
 public:
   Agent(Config config, Ui &ui, AgentMode initial_mode = AgentMode::Plan);
+  Agent(Config config, Ui &ui, std::unique_ptr<Connector> connector,
+        AgentMode initial_mode = AgentMode::Plan);
   int run(const std::string &initial_prompt = "");
 
 private:

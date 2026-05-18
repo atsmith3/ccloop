@@ -152,16 +152,15 @@ LlmResponse OpenAiConnector::complete(const ContextManager &ctx,
   std::string url = cfg_.endpoint + "/chat/completions";
   std::string body = build_request_json(ctx, cfg_, tools);
 
-  struct curl_slist *headers = nullptr;
-  headers = curl_slist_append(headers, "Content-Type: application/json");
+  CurlHeaders headers;
+  headers.append("Content-Type: application/json");
   std::string key = cfg_.api_key;
   if (key.rfind("Bearer ", 0) == 0)
     key = key.substr(7);
   std::string auth = "Authorization: Bearer " + key;
-  headers = curl_slist_append(headers, auth.c_str());
+  headers.append(auth.c_str());
 
-  HttpResult result = http_post(url, body, headers);
-  curl_slist_free_all(headers);
+  HttpResult result = http_post(url, body, headers.p);
 
   if (result.status < 200 || result.status >= 300) {
     return make_http_error(result);
