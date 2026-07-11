@@ -44,7 +44,6 @@ struct AgentTests {
   static const std::vector<SlashCommand> &cmds(const Agent &a) {
     return a.slash_commands_;
   }
-  static AgentMode mode(const Agent &a) { return a.mode_; }
   static const ContextManager &ctx(const Agent &a) { return a.context_; }
 };
 
@@ -84,11 +83,10 @@ static std::string write_tmp(const std::string &content,
 
 TEST(agent_restore_then_save_roundtrip) {
   Ui ui;
-  Agent a(test_cfg(), ui, AgentMode::Plan);
+  Agent a(test_cfg(), ui);
 
   std::string src = write_tmp(R"({
         "version": 1,
-        "mode": "plan",
         "total_tokens": 100,
         "messages": [
             {"role": "system",    "content": "sys",   "estimated_tokens": 10},
@@ -102,8 +100,8 @@ TEST(agent_restore_then_save_roundtrip) {
   std::string dst = tmp_path();
   CHECK(AgentTests::save(a, dst));
 
-  // Restore saved file into a second agent with different initial mode
-  Agent a2(test_cfg(), ui, AgentMode::Act);
+  // Restore the saved file into a second agent
+  Agent a2(test_cfg(), ui);
   CHECK(AgentTests::restore(a2, dst));
   fs::remove(dst);
 
@@ -113,42 +111,39 @@ TEST(agent_restore_then_save_roundtrip) {
   CHECK_EQ(msgs[1].content, std::string("hello"));
   CHECK_EQ(msgs[2].content, std::string("world"));
   CHECK_EQ(AgentTests::ctx(a2).total_tokens(), size_t(100));
-  CHECK_EQ(AgentTests::mode(a2),
-           AgentMode::Plan); // from file, not constructor arg
 }
 
-TEST(agent_restore_preserves_act_mode) {
+// A legacy "mode" field in a saved context is ignored, not rejected.
+TEST(agent_restore_ignores_legacy_mode_field) {
   Ui ui;
-  Agent a(test_cfg(), ui, AgentMode::Plan);
+  Agent a(test_cfg(), ui);
   std::string p = write_tmp(R"({
         "version": 1, "mode": "act", "total_tokens": 0, "messages": []
     })");
   CHECK(AgentTests::restore(a, p));
   fs::remove(p);
-  CHECK_EQ(AgentTests::mode(a), AgentMode::Act);
 }
 
 TEST(agent_restore_invalid_version) {
   Ui ui;
-  Agent a(test_cfg(), ui, AgentMode::Plan);
-  std::string p = write_tmp(
-      R"({"version": 2, "mode": "plan", "total_tokens": 0, "messages": []})");
+  Agent a(test_cfg(), ui);
+  std::string p =
+      write_tmp(R"({"version": 2, "total_tokens": 0, "messages": []})");
   CHECK(!AgentTests::restore(a, p));
   fs::remove(p);
 }
 
 TEST(agent_restore_missing_messages) {
   Ui ui;
-  Agent a(test_cfg(), ui, AgentMode::Plan);
-  std::string p =
-      write_tmp(R"({"version": 1, "mode": "plan", "total_tokens": 0})");
+  Agent a(test_cfg(), ui);
+  std::string p = write_tmp(R"({"version": 1, "total_tokens": 0})");
   CHECK(!AgentTests::restore(a, p));
   fs::remove(p);
 }
 
 TEST(agent_restore_malformed_json) {
   Ui ui;
-  Agent a(test_cfg(), ui, AgentMode::Plan);
+  Agent a(test_cfg(), ui);
   std::string p = write_tmp("not json at all }{");
   CHECK(!AgentTests::restore(a, p));
   fs::remove(p);
@@ -156,10 +151,9 @@ TEST(agent_restore_malformed_json) {
 
 TEST(agent_restore_skips_incomplete_messages) {
   Ui ui;
-  Agent a(test_cfg(), ui, AgentMode::Plan);
+  Agent a(test_cfg(), ui);
   std::string p = write_tmp(R"({
         "version": 1,
-        "mode": "plan",
         "total_tokens": 5,
         "messages": [
             {"role": "user", "content": "good", "estimated_tokens": 5},
@@ -211,11 +205,11 @@ TEST(agent_requires_approval_write_auto) {
   CHECK(!AgentTests::requires_approval(a, def));
 }
 
-TEST(agent_requires_approval_shell_default) {
+TEST(agent_requires_approval_execute_default) {
   Ui ui;
   Agent a(test_cfg(), ui);
   ToolDef def;
-  def.permission = Permission::Shell;
+  def.permission = Permission::Execute;
   CHECK(AgentTests::requires_approval(a, def));
 }
 
@@ -253,11 +247,11 @@ TEST(agent_slash_commands_all_registered) {
     return false;
   };
 
-  CHECK(has("mode"));
   CHECK(has("compact"));
   CHECK(has("clear"));
   CHECK(has("context"));
   CHECK(has("edit"));
+  CHECK(has("mcp"));
   CHECK(has("quit"));
   CHECK(has("help"));
 }
@@ -274,7 +268,7 @@ TEST(agent_run_text_response_returns_0) {
   conn->responses.push_back(resp);
   Config cfg = test_cfg();
   cfg.permissions.auto_approve_read = true;
-  Agent a(cfg, ui, std::move(conn), AgentMode::Act);
+  Agent a(cfg, ui, std::move(conn));
   CHECK_EQ(a.run("do something"), 0);
 }
 
@@ -285,7 +279,7 @@ TEST(agent_run_error_response_returns_1) {
   resp.content = "Connection refused";
   auto conn = std::make_unique<StubConnector>();
   conn->responses.push_back(resp);
-  Agent a(test_cfg(), ui, std::move(conn), AgentMode::Act);
+  Agent a(test_cfg(), ui, std::move(conn));
   CHECK_EQ(a.run("do something"), 1);
 }
 
@@ -295,7 +289,7 @@ TEST(agent_run_stub_connector_called_once) {
   resp.content = "Done.";
   auto *raw = new StubConnector();
   raw->responses.push_back(resp);
-  Agent a(test_cfg(), ui, std::unique_ptr<Connector>(raw), AgentMode::Act);
+  Agent a(test_cfg(), ui, std::unique_ptr<Connector>(raw));
   a.run("ping");
   CHECK_EQ(raw->call_count, size_t(1));
 }
@@ -305,6 +299,6 @@ TEST(agent_run_empty_response_exits_cleanly) {
   LlmResponse resp; // empty content, no tool calls, no error
   auto conn = std::make_unique<StubConnector>();
   conn->responses.push_back(resp);
-  Agent a(test_cfg(), ui, std::move(conn), AgentMode::Act);
+  Agent a(test_cfg(), ui, std::move(conn));
   CHECK_EQ(a.run("go"), 0);
 }

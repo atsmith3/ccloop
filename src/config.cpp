@@ -108,10 +108,8 @@ static void parse_toml(const std::string &path, Config &cfg) {
         cfg.permissions.auto_approve_read = bool_val;
       else if (key == "write")
         cfg.permissions.auto_approve_write = bool_val;
-      else if (key == "delete")
-        cfg.permissions.auto_approve_delete = bool_val;
-      else if (key == "shell")
-        cfg.permissions.auto_approve_shell = bool_val;
+      else if (key == "execute")
+        cfg.permissions.auto_approve_execute = bool_val;
       else
         std::cerr << "warning: " << path << ": unrecognized key '" << key
                   << "' (ignored)\n";
@@ -241,6 +239,9 @@ Config Config::defaults() { return Config(); }
 
 Config Config::load(const std::string &explicit_path) {
   Config cfg = defaults();
+  std::error_code ec;
+  auto cwd = fs::current_path(ec);
+  cfg.working_dir = ec ? "." : cwd.string();
 
   // Determine which config file to load
   std::string config_path;

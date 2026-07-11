@@ -27,10 +27,9 @@
 #include <vector>
 
 struct Permissions {
-  bool auto_approve_read = true; // read_file, list_dir, search_files, file_info
-  bool auto_approve_write = true;   // write_file, edit_file, create_dir
-  bool auto_approve_delete = false; // delete_file
-  bool auto_approve_shell = false;  // run_shell
+  bool auto_approve_read = true;  // read_file (and read-only MCP tools)
+  bool auto_approve_write = true; // write_file, edit_file (and write MCP tools)
+  bool auto_approve_execute = false; // run_shell (the terminal)
 };
 
 enum class McpTransportType { Http, Stdio, LegacySse };
@@ -74,6 +73,9 @@ struct Config {
 
   // Path of the loaded config file (absolute, set at load time)
   std::string config_path = "";
+
+  // Working directory at startup, injected into system prompt
+  std::string working_dir = "";
 
   // Preferred editor for /edit command (empty = use $VISUAL/$EDITOR/nano)
   std::string editor = "";

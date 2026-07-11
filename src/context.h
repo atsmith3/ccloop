@@ -50,6 +50,10 @@ public:
   size_t total_tokens() const;
   size_t message_count() const;
 
+  // Replace body of any previous tool result whose header matches with
+  // "[superseded]", freeing tokens occupied by stale content.
+  void prune_tool_result(const std::string &header);
+
 private:
   std::vector<Message> messages_;
   size_t total_tokens_ = 0;
