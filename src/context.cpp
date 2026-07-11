@@ -205,3 +205,26 @@ const std::vector<Message> &ContextManager::messages() const {
 size_t ContextManager::total_tokens() const { return total_tokens_; }
 
 size_t ContextManager::message_count() const { return messages_.size(); }
+
+void ContextManager::prune_tool_result(const std::string &header) {
+  const std::string needle = header + "\n";
+  for (auto &msg : messages_) {
+    if (msg.role == Message::Role::System)
+      continue;
+    size_t pos = 0;
+    bool changed = false;
+    while ((pos = msg.content.find(needle, pos)) != std::string::npos) {
+      size_t body_start = pos + needle.size();
+      size_t sep = msg.content.find("\n\n[Tool:", body_start);
+      size_t body_end = (sep == std::string::npos) ? msg.content.size() : sep;
+      msg.content.replace(body_start, body_end - body_start, "[superseded]");
+      pos = body_start + std::string("[superseded]").size();
+      changed = true;
+    }
+    if (changed) {
+      total_tokens_ -= msg.estimated_tokens;
+      msg.estimated_tokens = estimate_tokens(msg.content);
+      total_tokens_ += msg.estimated_tokens;
+    }
+  }
+}

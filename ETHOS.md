@@ -6,4 +6,4 @@
 
 **Minimal.** The UI gets out of the way. There is a prompt and there is output. Everything else is noise.
 
-**Extensible by design.** New connectors, new tools, new modes slot in cleanly without touching unrelated code.
+**Extensible by design.** A small, fixed core toolset — read, write, edit, shell — kept deliberately minimal. New connectors slot in cleanly, and MCP servers extend the agent's reach without touching unrelated code.

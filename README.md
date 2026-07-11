@@ -4,10 +4,9 @@ A minimal, self-contained agentic coding CLI. One binary. One config file. No su
 
 ## Features
 
-- **Agentic loop:** Agent reads code, formulates plans, executes with approval
-- **Two modes:** Plan (explores codebase, builds plans), Act (executes changes)
-- **Tool-use:** Read files, search code, write/edit files atomically, run shell commands, manage directories, find symbols, spawn sub-agents, ask the user questions
-- **MCP tools:** Connect to any MCP server over stdio, HTTP, or legacy SSE — tools appear alongside built-in tools
+- **Agentic loop:** Agent reads and edits code and runs commands, with approval
+- **Minimal fixed toolset:** `read_file`, `write_file`, `edit_file`, and `run_shell` — the terminal covers listing, searching, metadata, and everything else
+- **MCP tools:** Connect to any MCP server over stdio, HTTP, or legacy SSE — tools appear alongside the built-in tools
 - **Multi-connector:** OpenAI-compatible JSON and AWS Bedrock — selected via one config line
 - **Zero external dependencies:** Only libcurl. No npm, pip, Boost, or test frameworks
 - **Supply-chain safe:** Custom minimal TOML/JSON parsers, custom test harness, all from stdlib
@@ -168,9 +167,7 @@ ccl
 ## Usage
 
 ```bash
-ccl                              # start in Plan mode (default)
-ccl --mode act                   # start in Act mode
-ccl -m act                       # short form of --mode
+ccl                              # start an interactive session
 ccl --model qwen3-235b           # override model
 ccl --endpoint http://localhost:4000/v1
 ccl --config /path/to/config.toml
@@ -179,66 +176,55 @@ ccl --version                    # print version and build info
 ccl --help                       # show usage
 ```
 
-### Non-interactive / Subagent Mode
+### Non-interactive Mode
 
-Use `-p` to supply a prompt on the command line. The agent runs a full plan→act cycle and exits — no stdin required.
+Use `-p` to supply a prompt on the command line. The agent runs the task and exits — no stdin required.
 
 ```bash
-# Plan, execute, exit (default plan mode → auto-transitions to act)
+# Run and exit
 ccl -p "add input validation to the login endpoint"
 
 # Skip prompts for all tool calls
 ccl -p "add input validation to the login endpoint" -y
-
-# Start directly in act mode (no planning phase)
-ccl -p "add input validation to the login endpoint" -m act -y
 ```
 
 **Flags:**
 
 | Flag | Description |
 |------|-------------|
-| `-p`/`--prompt <text>` | Run one turn non-interactively then exit. In plan mode (default), auto-transitions to act and exits after act completes. |
+| `-p`/`--prompt <text>` | Run non-interactively until the task is done, then exit. |
 | `-y`/`--yolo` | Auto-approve all tool calls — no approval prompts. |
-| `-m`/`--mode plan\|act` | Start in the specified mode (`-m` is a short alias for `--mode`). |
+| `-s`/`--silent` | Suppress all output except the final completion. |
 | `-v`/`--version` | Print version and build info, then exit. |
 | `-h`/`--help` | Show usage, then exit. |
 
 ### Interactive Session Example
 
 ```
-[ccl] Mode: plan | tokens: 0/8000
+tokens: 0/8000
 > refactor the auth module to use JWT tokens
-
-[agent] Let me explore the codebase first.
 
 [call] read_file path=src/auth.cpp (local)
 [result] OK - 1842 bytes
 
-[agent] Here's my plan:
-  ## Plan: auth-jwt-refactor
-  1. [ ] Replace session token storage with JWT signing — src/auth.cpp
-  2. [ ] Add token expiration validation — src/auth.cpp
-  3. [ ] Update tests — tests/test_auth.cpp
+[call] edit_file path=src/auth.cpp (local)
+Approve edit_file? [y/n]: y
+[result] OK - Edited: src/auth.cpp (+12 lines)
 
-tokens: 645/8000
-
-> /mode act
-[ccl] Mode: act
-
-[call] write_file path=src/auth.cpp (local)
-Approve write_file? [y/n]: y
-[result] OK - wrote 2048 bytes
-
-[agent] Refactoring complete!
+[completed] Refactoring complete — auth now issues and validates JWTs.
 
 tokens: 1203/8000
 >
 ```
 
+When the agent needs input, it simply replies with a question and no tool call; that ends the turn so you can answer on the next line.
+
 **Slash commands:**
-- `/mode plan|act` — switch modes
 - `/clear` — reset context (keeps system prompt)
+- `/compact` — summarize and compact the context window
+- `/context save|restore <file>` — persist or reload a session
+- `/mcp list|reload` — show MCP server status or reconnect
+- `/edit` — open `$EDITOR` to compose a multi-line prompt
 - `/help` — show help
 - `/quit` — exit
 
@@ -252,8 +238,8 @@ tokens: 1203/8000
                             │
 ┌───────────────────────────▼──────────────────────────┐
 │                      Agent                           │
-│     plan ↔ act loop  ·  context compaction           │
-│     tool approval    ·  /mode /clear /help           │
+│     single-mode loop  ·  context compaction          │
+│     tool approval     ·  /clear /compact /help        │
 └────────────┬──────────────────────────┬──────────────┘
              │                          │
 ┌────────────▼────────────┐  ┌──────────▼─────────────┐
@@ -335,7 +321,7 @@ ccl/
 │   ├── connector_base.h/cpp     -- shared HTTP/retry layer
 │   ├── connector_openai.h/cpp   -- OpenAI-compatible endpoint + JSON tool calling
 │   ├── connector_bedrock.h/cpp  -- AWS Bedrock Converse API + SigV4
-│   ├── agent.h/cpp              -- core agent loop (plan/act modes)
+│   ├── agent.h/cpp              -- core agent loop (single mode)
 │   └── ui.h/cpp                 -- terminal UI
 └── tests/
     ├── harness.h                -- custom test harness

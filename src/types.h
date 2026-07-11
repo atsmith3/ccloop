@@ -27,20 +27,8 @@
 #include <unordered_map>
 #include <vector>
 
-// Agent mode
-enum class AgentMode {
-  Plan,
-  Act,
-};
-
 enum class Approval {
   Accept,
-  Reject,
-};
-
-enum class PlanApproval {
-  Accept,
-  Refine,
   Reject,
 };
 
@@ -49,10 +37,11 @@ struct ToolParam {
   std::string name;
   std::string type; // "string" | "integer" | "boolean"
   std::string description;
-  bool required;
+  bool required = false;
 };
 
-enum class Permission { Read, Write, Delete, Shell };
+// Mirrors Unix filesystem permissions: read, write, execute.
+enum class Permission { Read, Write, Execute };
 
 // Tool definition -- sent to LLM
 struct ToolDef {

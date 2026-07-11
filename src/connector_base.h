@@ -46,7 +46,7 @@ protected:
   CURL *curl_ = nullptr;
 
   explicit ConnectorBase(const Config &cfg);
-  ~ConnectorBase();
+  ~ConnectorBase() override;
 
   // POST body to url using given headers slist (caller owns/frees the slist).
   // Retry logic is built in. Auth set either via headers or via curl handle

@@ -445,3 +445,65 @@ TEST(context_to_json_escapes_special_chars) {
   CHECK(content.has_value());
   CHECK_EQ(content->as_string(), std::string("say \"hello\"\nand bye"));
 }
+
+// ============================================================================
+// prune_tool_result deduplication
+// ============================================================================
+
+TEST(prune_tool_result_replaces_stale_body) {
+  ContextManager ctx(8000);
+  ctx.push_user("[Tool: read_file | src/foo.cpp]\nold file contents here");
+  ctx.prune_tool_result("[Tool: read_file | src/foo.cpp]");
+
+  const auto &msgs = ctx.messages();
+  CHECK_EQ(msgs.size(), size_t(1));
+  CHECK(msgs[0].content.find("[superseded]") != std::string::npos);
+  CHECK(msgs[0].content.find("old file contents here") == std::string::npos);
+}
+
+TEST(prune_tool_result_leaves_adjacent_blocks_intact) {
+  ContextManager ctx(8000);
+  // Two tool blocks in one message; only the first matches the prune target
+  std::string content = "[Tool: read_file | src/foo.cpp]\nstale contents"
+                        "\n\n[Tool: read_file | src/bar.cpp]\nother contents";
+  ctx.push_user(content);
+  ctx.prune_tool_result("[Tool: read_file | src/foo.cpp]");
+
+  const auto &msgs = ctx.messages();
+  CHECK(msgs[0].content.find("[superseded]") != std::string::npos);
+  CHECK(msgs[0].content.find("other contents") != std::string::npos);
+}
+
+TEST(prune_tool_result_decreases_token_count) {
+  ContextManager ctx(8000);
+  std::string large_body(400, 'x');
+  ctx.push_user("[Tool: read_file | src/big.cpp]\n" + large_body);
+  size_t before = ctx.total_tokens();
+
+  ctx.prune_tool_result("[Tool: read_file | src/big.cpp]");
+
+  CHECK(ctx.total_tokens() < before);
+}
+
+TEST(prune_tool_result_skips_system_messages) {
+  ContextManager ctx(8000);
+  // System messages must not be touched
+  ctx.push_system("[Tool: read_file | src/foo.cpp]\nsystem content");
+  ctx.prune_tool_result("[Tool: read_file | src/foo.cpp]");
+
+  const auto &msgs = ctx.messages();
+  CHECK(msgs[0].content.find("system content") != std::string::npos);
+  CHECK(msgs[0].content.find("[superseded]") == std::string::npos);
+}
+
+TEST(prune_tool_result_no_match_is_noop) {
+  ContextManager ctx(8000);
+  ctx.push_user("[Tool: read_file | src/foo.cpp]\nsome contents");
+  size_t before = ctx.total_tokens();
+
+  ctx.prune_tool_result("[Tool: read_file | src/other.cpp]");
+
+  CHECK_EQ(ctx.total_tokens(), before);
+  const auto &msgs = ctx.messages();
+  CHECK(msgs[0].content.find("some contents") != std::string::npos);
+}

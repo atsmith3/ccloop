@@ -108,10 +108,8 @@ static void parse_toml(const std::string &path, Config &cfg) {
         cfg.permissions.auto_approve_read = bool_val;
       else if (key == "write")
         cfg.permissions.auto_approve_write = bool_val;
-      else if (key == "delete")
-        cfg.permissions.auto_approve_delete = bool_val;
-      else if (key == "shell")
-        cfg.permissions.auto_approve_shell = bool_val;
+      else if (key == "execute")
+        cfg.permissions.auto_approve_execute = bool_val;
       else
         std::cerr << "warning: " << path << ": unrecognized key '" << key
                   << "' (ignored)\n";
@@ -241,6 +239,9 @@ Config Config::defaults() { return Config(); }
 
 Config Config::load(const std::string &explicit_path) {
   Config cfg = defaults();
+  std::error_code ec;
+  auto cwd = fs::current_path(ec);
+  cfg.working_dir = ec ? "." : cwd.string();
 
   // Determine which config file to load
   std::string config_path;
@@ -278,8 +279,11 @@ Config Config::load(const std::string &explicit_path) {
     if (fs::exists(mcp_path)) {
       try {
         load_mcp_config(mcp_path, cfg);
+      } catch (const std::exception &e) {
+        std::cerr << "warning: failed to load MCP config " << mcp_path << ": "
+                  << e.what() << "\n";
       } catch (...) {
-        // Fail silently
+        std::cerr << "warning: failed to load MCP config " << mcp_path << "\n";
       }
     }
   }
@@ -296,7 +300,11 @@ void Config::reload_mcp_servers() {
     return;
   try {
     load_mcp_config(path, *this);
+  } catch (const std::exception &e) {
+    std::cerr << "warning: failed to reload MCP config " << path << ": "
+              << e.what() << "\n";
   } catch (...) {
+    std::cerr << "warning: failed to reload MCP config " << path << "\n";
   }
 }
 
@@ -314,7 +322,8 @@ void Config::apply_env_overrides(Config &cfg) {
     try {
       cfg.timeout_sec = std::stoi(timeout);
     } catch (...) {
-      // Ignore invalid timeout
+      std::cerr << "warning: CCL_TIMEOUT=" << timeout
+                << " is not a valid integer; using default\n";
     }
   }
 

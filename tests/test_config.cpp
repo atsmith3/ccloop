@@ -148,38 +148,34 @@ TEST(config_permissions_defaults) {
   Config cfg = Config::defaults();
   CHECK(cfg.permissions.auto_approve_read);
   CHECK(cfg.permissions.auto_approve_write);
-  CHECK(!cfg.permissions.auto_approve_delete);
-  CHECK(!cfg.permissions.auto_approve_shell);
+  CHECK(!cfg.permissions.auto_approve_execute);
 }
 
 TEST(config_permissions_from_toml) {
   std::string content = R"(
 [permissions]
-read   = false
-write  = false
-delete = true
-shell  = true
+read    = false
+write   = false
+execute = true
 )";
   std::string path = create_temp_toml(content);
   Config cfg = Config::load(path);
   CHECK(!cfg.permissions.auto_approve_read);
   CHECK(!cfg.permissions.auto_approve_write);
-  CHECK(cfg.permissions.auto_approve_delete);
-  CHECK(cfg.permissions.auto_approve_shell);
+  CHECK(cfg.permissions.auto_approve_execute);
   fs::remove(path);
 }
 
 TEST(config_permissions_partial_override) {
   std::string content = R"(
 [permissions]
-shell = true
+execute = true
 )";
   std::string path = create_temp_toml(content);
   Config cfg = Config::load(path);
   CHECK(cfg.permissions.auto_approve_read);    // default unchanged
   CHECK(cfg.permissions.auto_approve_write);   // default unchanged
-  CHECK(!cfg.permissions.auto_approve_delete); // default unchanged
-  CHECK(cfg.permissions.auto_approve_shell);   // overridden
+  CHECK(cfg.permissions.auto_approve_execute); // overridden
   fs::remove(path);
 }
 
@@ -293,16 +289,14 @@ TEST(config_ccl_config_env_var) {
 
 TEST(config_boolean_case_insensitive) {
   std::string content = "[permissions]\n"
-                        "read   = False\n"
-                        "write  = False\n"
-                        "delete = True\n"
-                        "shell  = TRUE\n";
+                        "read    = False\n"
+                        "write   = False\n"
+                        "execute = TRUE\n";
   std::string path = create_temp_toml(content);
   Config cfg = Config::load(path);
   CHECK(!cfg.permissions.auto_approve_read);
   CHECK(!cfg.permissions.auto_approve_write);
-  CHECK(cfg.permissions.auto_approve_delete);
-  CHECK(cfg.permissions.auto_approve_shell);
+  CHECK(cfg.permissions.auto_approve_execute);
   fs::remove(path);
 }
 
