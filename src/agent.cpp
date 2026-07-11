@@ -140,6 +140,37 @@ void Agent::compact_with_summary() {
   ui_.update_tokens(context_.total_tokens(), config_.token_limit);
 }
 
+double Agent::compute_cost(const LlmResponse::Usage &usage) const {
+  // Select the tier for the active model whose [context_min, context_max)
+  // contains this request's input size. Provider usage-field semantics vary;
+  // this is a best-effort split (OpenAI reports cache_read as a subset of
+  // prompt_tokens; Bedrock reports cache read/write counts separately).
+  const PricingTier *tier = nullptr;
+  for (const auto &t : config_.pricing) {
+    if (t.model != config_.model)
+      continue;
+    if (usage.prompt_tokens >= t.context_min &&
+        usage.prompt_tokens < t.context_max) {
+      tier = &t;
+      break;
+    }
+  }
+  if (!tier)
+    return 0.0;
+
+  size_t billed = usage.cache_read_tokens + usage.cache_write_tokens;
+  size_t uncached_input =
+      billed > usage.prompt_tokens ? 0 : usage.prompt_tokens - billed;
+
+  return static_cast<double>(uncached_input) * tier->input_cost_per_token +
+         static_cast<double>(usage.cache_read_tokens) *
+             tier->cache_read_input_token_cost +
+         static_cast<double>(usage.cache_write_tokens) *
+             tier->cache_creation_input_token_cost +
+         static_cast<double>(usage.completion_tokens) *
+             tier->output_cost_per_token;
+}
+
 void Agent::loop() {
   while (!should_exit.load()) {
     std::string input;
@@ -150,7 +181,7 @@ void Agent::loop() {
       pending_execution_.clear();
       is_synthetic = true; // avoids slash-command dispatch on injected prompts
     } else {
-      input = ui_.wait_for_input();
+      input = ui_.wait_for_input(context_.total_tokens(), config_.token_limit);
     }
 
     if (!is_synthetic && handle_slash_command(input)) {
@@ -167,6 +198,7 @@ void Agent::loop() {
     }
 
     context_.push_user(input);
+    ++stats_.user_messages;
 
     // Main interaction loop: keep calling LLM until we get a text response
     int tool_steps = 0;
@@ -191,8 +223,12 @@ void Agent::loop() {
       }
 
       context_.sync_token_count(response.usage);
-      ui_.show_usage(response.usage, context_.total_tokens(),
-                     config_.token_limit);
+      stats_.input_tokens += response.usage.prompt_tokens;
+      stats_.cache_read_tokens += response.usage.cache_read_tokens;
+      stats_.cache_write_tokens += response.usage.cache_write_tokens;
+      stats_.output_tokens += response.usage.completion_tokens;
+      stats_.cost += compute_cost(response.usage);
+      ++stats_.assistant_messages;
 
       if (!response.tool_calls.empty()) {
         // Assistant called tools — push message and execute them
@@ -265,6 +301,8 @@ static std::string tool_result_header(const ToolCall &call) {
 
 void Agent::handle_tool_calls(const std::vector<ToolCall> &calls) {
   seen_calls_.clear();
+  stats_.tool_calls += calls.size();
+  stats_.tool_results += calls.size();
   std::string combined;
 
   if (!calls.empty()) {
@@ -522,6 +560,10 @@ void Agent::build_slash_commands() {
            std::cout.flush();
          }
        }});
+
+  slash_commands_.push_back(
+      {"stats", "show session message, token, and cost totals",
+       [this](const std::string &) { ui_.show_stats(stats_, config_.model); }});
 
   slash_commands_.push_back(
       {"quit", "exit", [](const std::string &) { should_exit = true; }});

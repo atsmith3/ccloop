@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <unistd.h>
 
@@ -92,17 +93,35 @@ void Ui::update_tokens(size_t used, size_t limit) const {
   std::cout.flush();
 }
 
-void Ui::show_usage(const LlmResponse::Usage &usage, size_t ctx_used,
-                    size_t ctx_limit) const {
-  if (silent_)
-    return;
-  std::cout << "[tokens] in: " << usage.prompt_tokens
-            << " | out: " << usage.completion_tokens;
-  if (usage.cache_read_tokens > 0)
-    std::cout << " | cache_rd: " << usage.cache_read_tokens;
-  if (usage.cache_write_tokens > 0)
-    std::cout << " | cache_wr: " << usage.cache_write_tokens;
-  std::cout << " | ctx: " << ctx_used << "/" << ctx_limit << "\n";
+void Ui::show_stats(const SessionStats &stats, const std::string &model) const {
+  size_t total_messages =
+      stats.user_messages + stats.assistant_messages + stats.tool_calls;
+  size_t input_total = stats.input_tokens;
+  size_t cached = stats.cache_read_tokens;
+  size_t uncached = cached > input_total ? 0 : input_total - cached;
+  double cached_pct = input_total > 0 ? (100.0 * static_cast<double>(cached) /
+                                         static_cast<double>(input_total))
+                                      : 0.0;
+
+  std::cout << "Messages\n"
+            << " Total: " << total_messages << "\n"
+            << " User: " << stats.user_messages << "\n"
+            << " Assistant: " << stats.assistant_messages << "\n"
+            << " Tools: " << stats.tool_calls << " calls, "
+            << stats.tool_results << " results\n\n";
+
+  std::cout << "Tokens\n"
+            << " Input: " << input_total << "\n"
+            << "   Cached: " << cached << " (" << std::fixed
+            << std::setprecision(1) << cached_pct << "%)\n"
+            << "   Uncached: " << uncached << "\n"
+            << " Output: " << stats.output_tokens << "\n"
+            << " Total: " << (input_total + stats.output_tokens) << "\n\n";
+
+  std::cout << "Cost\n"
+            << " Total: $" << std::fixed << std::setprecision(6) << stats.cost
+            << "\n"
+            << "   " << model << ": $" << stats.cost << "\n";
   std::cout.flush();
 }
 
@@ -160,8 +179,11 @@ void Ui::show_completion(const std::string &summary) const {
   show_message("completed", summary);
 }
 
-std::string Ui::wait_for_input() {
-  std::cout << "> ";
+std::string Ui::wait_for_input(size_t ctx_used, size_t ctx_limit) {
+  size_t pct = ctx_limit ? (ctx_used * 100 / ctx_limit) : 0;
+  if (pct > 100)
+    pct = 100;
+  std::cout << "[ " << pct << "% ] > ";
   std::cout.flush();
 
   std::string line;

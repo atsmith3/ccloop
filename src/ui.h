@@ -32,13 +32,12 @@ public:
   void show_tool_call(const ToolCall &call, ToolSource source) const;
   void show_tool_result(const ToolCall &call, const ToolResult &result) const;
   void update_tokens(size_t used, size_t limit) const;
-  void show_usage(const LlmResponse::Usage &usage, size_t ctx_used,
-                  size_t ctx_limit) const;
+  void show_stats(const SessionStats &stats, const std::string &model) const;
   void show_error(std::string_view msg) const;
 
   Approval request_approval(const ToolCall &call);
   void show_completion(const std::string &summary) const;
-  std::string wait_for_input();
+  std::string wait_for_input(size_t ctx_used, size_t ctx_limit);
   std::string open_editor(const std::string &configured_editor = "");
 
 private:

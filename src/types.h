@@ -117,3 +117,16 @@ struct LlmResponse {
 
 // Tool source for UI display
 enum class ToolSource { Local, Mcp };
+
+// Cumulative session usage, accumulated across every turn and shown by /stats.
+struct SessionStats {
+  size_t user_messages = 0;      // real user prompts (not tool-result pushes)
+  size_t assistant_messages = 0; // successful model responses
+  size_t tool_calls = 0;         // total tool calls dispatched
+  size_t tool_results = 0;       // total tool results collected
+  size_t input_tokens = 0;       // sum of prompt_tokens
+  size_t cache_read_tokens = 0;  // sum of cache_read_tokens
+  size_t cache_write_tokens = 0; // sum of cache_write_tokens
+  size_t output_tokens = 0;      // sum of completion_tokens
+  double cost = 0.0;             // running USD
+};
