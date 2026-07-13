@@ -125,6 +125,20 @@ void Ui::show_stats(const SessionStats &stats, const std::string &model) const {
   std::cout.flush();
 }
 
+void Ui::show_context(size_t used, size_t limit, size_t messages) const {
+  size_t pct = limit ? (used * 100 / limit) : 0;
+  if (pct > 100)
+    pct = 100;
+  size_t free = used >= limit ? 0 : limit - used;
+
+  std::cout << "Context\n"
+            << " Used: " << used << " / " << limit << " tokens (" << pct
+            << "%)\n"
+            << " Free: " << free << " tokens\n"
+            << " Messages: " << messages << "\n";
+  std::cout.flush();
+}
+
 void Ui::show_error(std::string_view msg) const {
   std::cerr << "[error] " << msg << "\n";
   std::cerr.flush();

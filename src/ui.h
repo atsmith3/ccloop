@@ -33,6 +33,7 @@ public:
   void show_tool_result(const ToolCall &call, const ToolResult &result) const;
   void update_tokens(size_t used, size_t limit) const;
   void show_stats(const SessionStats &stats, const std::string &model) const;
+  void show_context(size_t used, size_t limit, size_t messages) const;
   void show_error(std::string_view msg) const;
 
   Approval request_approval(const ToolCall &call);
