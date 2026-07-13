@@ -507,33 +507,41 @@ void Agent::build_slash_commands() {
        }});
 
   slash_commands_.push_back(
-      {"context", "save <file> | restore <file>",
-       [this](const std::string &arg) {
-         size_t sp = arg.find(' ');
-         std::string sub = (sp == std::string::npos) ? arg : arg.substr(0, sp);
-         std::string file = (sp == std::string::npos) ? "" : arg.substr(sp + 1);
-         file = trim(file);
-
-         if (sub == "save" && !file.empty()) {
-           if (save_context(file))
-             std::cout << "[context saved to " << file << "]\n";
-           else
-             std::cout << "[error] could not write " << file << "\n";
+      {"export", "save session to <file>", [this](const std::string &arg) {
+         std::string file = trim(arg);
+         if (file.empty()) {
+           std::cout << "Usage: /export <file>\n";
            std::cout.flush();
-         } else if (sub == "restore" && !file.empty()) {
-           if (restore_context(file)) {
-             ui_.update_tokens(context_.total_tokens(), config_.token_limit);
-             std::cout << "[context restored from " << file << "]\n";
-             std::cout.flush();
-           } else {
-             std::cout << "[error] could not restore from " << file << "\n";
-             std::cout.flush();
-           }
-         } else {
-           std::cout
-               << "Usage: /context save <file> | /context restore <file>\n";
-           std::cout.flush();
+           return;
          }
+         if (save_context(file))
+           std::cout << "[session exported to " << file << "]\n";
+         else
+           std::cout << "[error] could not write " << file << "\n";
+         std::cout.flush();
+       }});
+
+  slash_commands_.push_back(
+      {"import", "restore session from <file>", [this](const std::string &arg) {
+         std::string file = trim(arg);
+         if (file.empty()) {
+           std::cout << "Usage: /import <file>\n";
+           std::cout.flush();
+           return;
+         }
+         if (restore_context(file)) {
+           ui_.update_tokens(context_.total_tokens(), config_.token_limit);
+           std::cout << "[session imported from " << file << "]\n";
+         } else {
+           std::cout << "[error] could not restore from " << file << "\n";
+         }
+         std::cout.flush();
+       }});
+
+  slash_commands_.push_back(
+      {"context", "show current context usage", [this](const std::string &) {
+         ui_.show_context(context_.total_tokens(), config_.token_limit,
+                          context_.message_count());
        }});
 
   slash_commands_.push_back(

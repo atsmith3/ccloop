@@ -222,7 +222,9 @@ When the agent needs input, it simply replies with a question and no tool call; 
 **Slash commands:**
 - `/clear` — reset context (keeps system prompt)
 - `/compact` — summarize and compact the context window
-- `/context save|restore <file>` — persist or reload a session
+- `/export <file>` — save the session to a file
+- `/import <file>` — restore a session from a file
+- `/context` — show current context usage (tokens used / max)
 - `/mcp list|reload` — show MCP server status or reconnect
 - `/edit` — open `$EDITOR` to compose a multi-line prompt
 - `/help` — show help

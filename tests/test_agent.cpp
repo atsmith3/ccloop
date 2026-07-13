@@ -254,6 +254,8 @@ TEST(agent_slash_commands_all_registered) {
   CHECK(has("compact"));
   CHECK(has("clear"));
   CHECK(has("context"));
+  CHECK(has("export"));
+  CHECK(has("import"));
   CHECK(has("edit"));
   CHECK(has("mcp"));
   CHECK(has("stats"));
