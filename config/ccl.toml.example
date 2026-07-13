@@ -25,3 +25,26 @@ editor = "vim"
 read    = true   # auto-approve: read_file (and read-only MCP tools)
 write   = true   # auto-approve: write_file, edit_file (and write MCP tools)
 execute = false  # auto-approve: run_shell (the terminal, incl. rm/mkdir/mv)
+
+# Optional per-model pricing, used by /stats to report session cost. Omit all
+# [[pricing]] blocks to leave every cost at $0 (the default for local models).
+# Each block is one tier: a model may list several tiers, selected by the
+# request's input-token count via [context_min, context_max). All rates are USD
+# per token. Example below mirrors a model with a price break at 200k tokens.
+# [[pricing]]
+# model = "claude-sonnet-4-6"
+# context_min = 0
+# context_max = 200000
+# input_cost_per_token           = 0.000003
+# cache_read_input_token_cost    = 0.0000003
+# cache_creation_input_token_cost = 0.00000375
+# output_cost_per_token          = 0.000015
+#
+# [[pricing]]
+# model = "claude-sonnet-4-6"
+# context_min = 200000
+# context_max = 1000000
+# input_cost_per_token           = 0.000006
+# cache_read_input_token_cost    = 0.0000006
+# cache_creation_input_token_cost = 0.0000075
+# output_cost_per_token          = 0.0000225

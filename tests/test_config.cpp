@@ -606,6 +606,75 @@ TEST(config_editor_field_parsed) {
   fs::remove(path);
 }
 
+// ============================================================================
+// Pricing tiers ([[pricing]] array-of-tables)
+// ============================================================================
+
+TEST(config_pricing_absent_yields_empty) {
+  Config cfg = Config::defaults();
+  CHECK_EQ(cfg.pricing.size(), size_t(0));
+  std::string path = create_temp_toml("model = \"m\"\n");
+  Config loaded = Config::load(path);
+  CHECK_EQ(loaded.pricing.size(), size_t(0));
+  fs::remove(path);
+}
+
+TEST(config_pricing_two_tiers_parsed) {
+  std::string content = R"(
+model = "claude-sonnet-4-6"
+
+[[pricing]]
+model = "claude-sonnet-4-6"
+context_min = 0
+context_max = 200000
+input_cost_per_token = 0.000003
+cache_read_input_token_cost = 0.0000003
+cache_creation_input_token_cost = 0.00000375
+output_cost_per_token = 0.000015
+
+[[pricing]]
+model = "claude-sonnet-4-6"
+context_min = 200000
+context_max = 1000000
+input_cost_per_token = 0.000006
+cache_read_input_token_cost = 0.0000006
+cache_creation_input_token_cost = 0.0000075
+output_cost_per_token = 0.0000225
+)";
+  std::string path = create_temp_toml(content);
+  Config cfg = Config::load(path);
+  CHECK_EQ(cfg.pricing.size(), size_t(2));
+
+  CHECK_EQ(cfg.pricing[0].model, std::string("claude-sonnet-4-6"));
+  CHECK_EQ(cfg.pricing[0].context_min, size_t(0));
+  CHECK_EQ(cfg.pricing[0].context_max, size_t(200000));
+  CHECK(std::abs(cfg.pricing[0].input_cost_per_token - 0.000003) < 1e-12);
+  CHECK(std::abs(cfg.pricing[0].cache_read_input_token_cost - 0.0000003) <
+        1e-12);
+  CHECK(std::abs(cfg.pricing[0].cache_creation_input_token_cost - 0.00000375) <
+        1e-12);
+  CHECK(std::abs(cfg.pricing[0].output_cost_per_token - 0.000015) < 1e-12);
+
+  CHECK_EQ(cfg.pricing[1].context_min, size_t(200000));
+  CHECK_EQ(cfg.pricing[1].context_max, size_t(1000000));
+  CHECK(std::abs(cfg.pricing[1].output_cost_per_token - 0.0000225) < 1e-12);
+  fs::remove(path);
+}
+
+TEST(config_pricing_unknown_array_section_ignored) {
+  std::string content = R"(
+model = "m"
+
+[[bogus]]
+foo = "bar"
+)";
+  std::string path = create_temp_toml(content);
+  Config cfg = Config::load(path);
+  CHECK_EQ(cfg.model, std::string("m"));
+  CHECK_EQ(cfg.pricing.size(), size_t(0));
+  fs::remove(path);
+}
+
 TEST(config_expand_home_no_crash_when_home_unset) {
   // Save and unset HOME
   const char *saved_home = std::getenv("HOME");

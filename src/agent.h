@@ -57,9 +57,11 @@ private:
   std::unordered_set<size_t> seen_calls_;
   std::vector<SlashCommand> slash_commands_;
   std::vector<McpServerStatus> mcp_status_;
+  SessionStats stats_;
 
   void loop();
   void compact_with_summary();
+  double compute_cost(const LlmResponse::Usage &usage) const;
   void handle_tool_calls(const std::vector<ToolCall> &calls);
   bool requires_approval(const ToolDef &def) const;
   bool save_context(const std::string &path) const;

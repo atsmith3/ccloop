@@ -23,6 +23,7 @@
 #include "../src/connector.h"
 #include "../src/ui.h"
 #include "harness.h"
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -45,6 +46,9 @@ struct AgentTests {
     return a.slash_commands_;
   }
   static const ContextManager &ctx(const Agent &a) { return a.context_; }
+  static double cost(const Agent &a, const LlmResponse::Usage &u) {
+    return a.compute_cost(u);
+  }
 };
 
 // Minimal Connector stub for injecting canned responses in tests.
@@ -252,8 +256,93 @@ TEST(agent_slash_commands_all_registered) {
   CHECK(has("context"));
   CHECK(has("edit"));
   CHECK(has("mcp"));
+  CHECK(has("stats"));
   CHECK(has("quit"));
   CHECK(has("help"));
+}
+
+// ============================================================================
+// compute_cost — pricing tiers
+// ============================================================================
+
+TEST(agent_compute_cost_empty_pricing_is_zero) {
+  Ui ui;
+  Agent a(test_cfg(), ui);
+  LlmResponse::Usage u;
+  u.prompt_tokens = 1000;
+  u.completion_tokens = 500;
+  CHECK(std::abs(AgentTests::cost(a, u)) < 1e-12);
+}
+
+TEST(agent_compute_cost_selects_tier_and_sums) {
+  Config cfg = test_cfg();
+  cfg.model = "priced-model";
+  PricingTier t0;
+  t0.model = "priced-model";
+  t0.context_min = 0;
+  t0.context_max = 200000;
+  t0.input_cost_per_token = 0.000003;
+  t0.cache_read_input_token_cost = 0.0000003;
+  t0.cache_creation_input_token_cost = 0.00000375;
+  t0.output_cost_per_token = 0.000015;
+  cfg.pricing.push_back(t0);
+
+  Ui ui;
+  Agent a(cfg, ui);
+
+  LlmResponse::Usage u;
+  u.prompt_tokens = 1000;    // 1000 input, of which 400 cache_read, 100 write
+  u.cache_read_tokens = 400; // -> uncached = 500
+  u.cache_write_tokens = 100;
+  u.completion_tokens = 200;
+
+  double expected = 500 * 0.000003     // uncached input
+                    + 400 * 0.0000003  // cache read
+                    + 100 * 0.00000375 // cache creation
+                    + 200 * 0.000015;  // output
+  CHECK(std::abs(AgentTests::cost(a, u) - expected) < 1e-12);
+}
+
+TEST(agent_compute_cost_tier_boundary_upper_selects_second) {
+  Config cfg = test_cfg();
+  cfg.model = "m";
+  PricingTier lo;
+  lo.model = "m";
+  lo.context_min = 0;
+  lo.context_max = 200000;
+  lo.input_cost_per_token = 0.000003;
+  PricingTier hi;
+  hi.model = "m";
+  hi.context_min = 200000;
+  hi.context_max = 1000000;
+  hi.input_cost_per_token = 0.000006;
+  cfg.pricing.push_back(lo);
+  cfg.pricing.push_back(hi);
+
+  Ui ui;
+  Agent a(cfg, ui);
+
+  LlmResponse::Usage u;
+  u.prompt_tokens = 200000; // exactly the boundary -> upper tier ([min, max))
+  double expected = 200000 * 0.000006;
+  CHECK(std::abs(AgentTests::cost(a, u) - expected) < 1e-9);
+}
+
+TEST(agent_compute_cost_model_mismatch_is_zero) {
+  Config cfg = test_cfg();
+  cfg.model = "active-model";
+  PricingTier t;
+  t.model = "other-model";
+  t.context_min = 0;
+  t.context_max = 1000000;
+  t.input_cost_per_token = 0.001;
+  cfg.pricing.push_back(t);
+
+  Ui ui;
+  Agent a(cfg, ui);
+  LlmResponse::Usage u;
+  u.prompt_tokens = 1000;
+  CHECK(std::abs(AgentTests::cost(a, u)) < 1e-12);
 }
 
 // ============================================================================

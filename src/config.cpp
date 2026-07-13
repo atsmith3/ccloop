@@ -79,6 +79,20 @@ static void parse_toml(const std::string &path, Config &cfg) {
     if (line.empty())
       continue;
 
+    // Handle array-of-tables headers: [[name]]. Each block appends a new entry
+    // that following key = value lines populate.
+    if (line.size() >= 4 && line[0] == '[' && line[1] == '[' &&
+        line.back() == ']' && line[line.size() - 2] == ']') {
+      current_section = trim(line.substr(2, line.size() - 4));
+      if (current_section == "pricing") {
+        cfg.pricing.push_back(PricingTier{});
+      } else {
+        std::cerr << "warning: " << path << ": unrecognized array section '[["
+                  << current_section << "]]' (ignored)\n";
+      }
+      continue;
+    }
+
     // Handle sections
     if (line[0] == '[' && line.back() == ']') {
       current_section = trim(line.substr(1, line.size() - 2));
@@ -113,6 +127,39 @@ static void parse_toml(const std::string &path, Config &cfg) {
       else
         std::cerr << "warning: " << path << ": unrecognized key '" << key
                   << "' (ignored)\n";
+      continue;
+    }
+
+    // Parse [[pricing]] tier entries
+    if (current_section == "pricing") {
+      if (cfg.pricing.empty()) {
+        std::cerr << "warning: " << path << ": pricing key '" << key
+                  << "' outside a [[pricing]] block (ignored)\n";
+        continue;
+      }
+      PricingTier &tier = cfg.pricing.back();
+      try {
+        if (key == "model")
+          tier.model = parse_string_value(value);
+        else if (key == "context_min")
+          tier.context_min = std::stoul(value);
+        else if (key == "context_max")
+          tier.context_max = std::stoul(value);
+        else if (key == "input_cost_per_token")
+          tier.input_cost_per_token = std::stod(value);
+        else if (key == "cache_read_input_token_cost")
+          tier.cache_read_input_token_cost = std::stod(value);
+        else if (key == "cache_creation_input_token_cost")
+          tier.cache_creation_input_token_cost = std::stod(value);
+        else if (key == "output_cost_per_token")
+          tier.output_cost_per_token = std::stod(value);
+        else
+          std::cerr << "warning: " << path << ": unrecognized pricing key '"
+                    << key << "' (ignored)\n";
+      } catch (const std::exception &) {
+        std::cerr << "warning: " << path << ": invalid value for pricing key '"
+                  << key << "' = '" << value << "' (ignored)\n";
+      }
       continue;
     }
 

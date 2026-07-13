@@ -22,6 +22,8 @@
 
 #include "connector.h"
 #include "types.h"
+#include <cstddef>
+#include <limits>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -42,6 +44,19 @@ struct McpServerConfig {
   std::string api_key; // optional Bearer auth (Http transports)
   std::unordered_set<std::string>
       write_tools; // tools that require write approval
+};
+
+// One pricing tier for a model. Anthropic-style models bill at different rates
+// depending on the request's input-token count, so a model may have several
+// tiers matched by [context_min, context_max). All rates are USD per token.
+struct PricingTier {
+  std::string model;
+  size_t context_min = 0;
+  size_t context_max = std::numeric_limits<size_t>::max();
+  double input_cost_per_token = 0.0;
+  double cache_read_input_token_cost = 0.0;
+  double cache_creation_input_token_cost = 0.0;
+  double output_cost_per_token = 0.0;
 };
 
 struct Config {
@@ -85,6 +100,9 @@ struct Config {
 
   // MCP servers (populated from mcp_config JSON file)
   std::vector<McpServerConfig> mcp_servers;
+
+  // Per-model pricing tiers (populated from [[pricing]] blocks). Empty = $0.
+  std::vector<PricingTier> pricing;
 
   static Config defaults();
   static Config load(const std::string &explicit_path = "");
